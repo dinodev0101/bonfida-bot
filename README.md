@@ -8,7 +8,10 @@
     - Signal Provider address (Pubkey)
 
 - Instructions:
-    - Deposit:
+    - Initialize Pool:
+        - Signal Provider address (Pubkey)
+        - Signed by Payer
+    - Deposit(initializes the pool if its nonexistent):
         - Pool Seeds (256 bits)
         - Token Mint address (Pubkey)
         - Amount (u64)
