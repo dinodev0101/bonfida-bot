@@ -6,8 +6,6 @@ use solana_program::{
 
 #[derive(Debug, PartialEq)]
 pub struct PoolMarket {
-    pub release_height: u64,
-    pub amount: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -45,6 +43,23 @@ impl IsInitialized for PoolHeader {
         self.is_initialized
     }
 }
+
+// impl Sealed for PoolMarket {}
+
+// impl Pack for PoolMarket {
+//     const LEN: usize = 33;
+//     fn pack_into_slice(&self, target: &mut [u8]) {
+//     }
+
+//     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+//         let signal_provider = Pubkey::new(&src[..32]);
+//         let is_initialized = src[32] == 1;
+//         Ok(Self {
+//             signal_provider,
+//             is_initialized,
+//         })
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

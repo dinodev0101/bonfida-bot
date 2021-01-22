@@ -5,10 +5,7 @@ use crate::{
 use std::{convert::TryInto, mem::size_of};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction}, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{Sysvar, clock::Clock, rent}};
 
-pub const POOL_HEADER_SIZE: usize = 33;
-pub const POOL_NB_MARKETS: usize = 100; //TODO 
 pub const MARKET_DATA_SIZE: usize = 10;
-pub const POOL_DATA_SIZE: usize = PoolHeader::LEN + POOL_NB_MARKETS * MARKET_DATA_SIZE;
 
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
@@ -22,7 +19,8 @@ pub enum PoolInstruction {
     ///   1. `[signer]` The fee payer account
     Init {
         // The seed used to derive the vesting accounts address
-        seeds: [u8; 32]
+        seeds: [u8; 32],
+        max_number_of_markets: u32
     },
     /// Creates a new pool from an empty one. The two operations need to
     /// be seperated as accound data allocation needs to be first processed
@@ -48,8 +46,14 @@ impl PoolInstruction {
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
                     .unwrap();
+                let max_number_of_markets: u32 = rest
+                    .get(32..36)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u32::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
                 Self::Init {
-                    seeds
+                    seeds,
+                    max_number_of_markets
                 }
             }
             1 => {
@@ -78,10 +82,12 @@ impl PoolInstruction {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
             &Self::Init {
-                seeds
+                seeds,
+                max_number_of_markets
             } => {
                 buf.push(0);
                 buf.extend_from_slice(&seeds);
+                buf.extend_from_slice(&max_number_of_markets.to_le_bytes());
             }
             Self::Create {
                 seeds,
@@ -99,57 +105,47 @@ impl PoolInstruction {
 // Creates a `Init` instruction
 pub fn init(
     system_program_id: &Pubkey,
-    vesting_program_id: &Pubkey,
+    bonfidabot_program_id: &Pubkey,
     payer_key: &Pubkey,
-    vesting_account: &Pubkey,
-    seeds: [u8; 32]
+    pool_key: &Pubkey,
+    seeds: [u8; 32],
+    max_number_of_markets: u32
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Init {
-        seeds
+        seeds,
+        max_number_of_markets
     }
     .pack();
     let accounts = vec![
         AccountMeta::new_readonly(*system_program_id, false),
         AccountMeta::new_readonly(rent::id(), false),
-        AccountMeta::new(*payer_key, true),
-        AccountMeta::new(*vesting_account, false)
+        AccountMeta::new(*pool_key, false),
+        AccountMeta::new(*payer_key, true)
     ];
     Ok(Instruction {
-        program_id: *vesting_program_id,
+        program_id: *bonfidabot_program_id,
         accounts,
         data
     })
 }
 
-// Creates a `CreateSchedule` instruction
+// Creates a `CreatePool` instruction
 pub fn create(
-    vesting_program_id: &Pubkey,
-    token_program_id: &Pubkey,
-    vesting_account_key: &Pubkey,
-    vesting_token_account_key: &Pubkey,
-    source_token_account_owner_key: &Pubkey,
-    source_token_account_key: &Pubkey,
-    destination_token_account_key: &Pubkey,
-    mint_address: &Pubkey,
-    schedules: Vec<Schedule>,
+    bonfidabot_program_id: &Pubkey,
+    pool_key: &Pubkey,
     seeds: [u8; 32],
+    signal_provider_key: &Pubkey
 ) -> Result<Instruction, ProgramError> {
-    let data = VestingInstruction::Create {
-        mint_address: *mint_address,
+    let data = PoolInstruction::Create {
         seeds,
-        destination_token_address: *destination_token_account_key,
-        schedules,
+        signal_provider_key: *signal_provider_key
     }
     .pack();
     let accounts = vec![
-        AccountMeta::new_readonly(*token_program_id, false),
-        AccountMeta::new(*vesting_account_key, false),
-        AccountMeta::new(*vesting_token_account_key, false),
-        AccountMeta::new_readonly(*source_token_account_owner_key, true),
-        AccountMeta::new(*source_token_account_key, false),
+        AccountMeta::new(*pool_key, false)
     ];
     Ok(Instruction {
-        program_id: *vesting_program_id,
+        program_id: *bonfidabot_program_id,
         accounts,
         data,
     })
@@ -161,41 +157,22 @@ mod test {
 
     #[test]
     fn test_instruction_packing() {
-        let mint_address = Pubkey::new_unique();
-        let destination_token_address = Pubkey::new_unique();
-
-        let original_create = VestingInstruction::Create {
+        let original_init = PoolInstruction::Init {
             seeds: [50u8; 32],
-            schedules: vec![Schedule {
-                amount: 42,
-                release_height: 250,
-            }],
-            mint_address: mint_address.clone(),
-            destination_token_address,
-        };
-        let packed_create = original_create.pack();
-        let unpacked_create = VestingInstruction::unpack(&packed_create).unwrap();
-        assert_eq!(original_create, unpacked_create);
-
-        let original_unlock = VestingInstruction::Unlock { seeds: [50u8; 32] };
-        assert_eq!(
-            original_unlock,
-            VestingInstruction::unpack(&original_unlock.pack()).unwrap()
-        );
-
-        let original_init = VestingInstruction::Init {
-            number_of_schedules: 42,
-            seeds: [50u8; 32],
+            max_number_of_markets: 43,
         };
         assert_eq!(
             original_init,
-            VestingInstruction::unpack(&original_init.pack()).unwrap()
+            PoolInstruction::unpack(&original_init.pack()).unwrap()
         );
 
-        let original_change = VestingInstruction::ChangeDestination { seeds: [50u8; 32] };
-        assert_eq!(
-            original_change,
-            VestingInstruction::unpack(&original_change.pack()).unwrap()
-        );
+        let original_create = PoolInstruction::Create {
+            seeds: [50u8; 32],
+            signal_provider_key: Pubkey::new_unique(),
+        };
+        let packed_create = original_create.pack();
+        let unpacked_create = PoolInstruction::unpack(&packed_create).unwrap();
+        assert_eq!(original_create, unpacked_create);
+
     }
 }

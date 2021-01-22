@@ -9,7 +9,7 @@
 
 - Instructions:
     - Initialize Pool:
-        - Signal Provider address (Pubkey)
+        - Max number of Markets (u32)
         - Signed by Payer
     - Deposit(initializes the pool if its nonexistent):
         - Pool Seeds (256 bits)

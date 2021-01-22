@@ -12,13 +12,7 @@ use solana_program::{
     system_instruction::create_account,
     sysvar::{clock::Clock, Sysvar},
 };
-use crate::{
-    instruction::{
-        PoolInstruction,
-        POOL_DATA_SIZE
-    },
-    state::PoolHeader
-};
+use crate::{instruction::{self, PoolInstruction}, state::PoolHeader};
 
 
 pub struct Processor {}
@@ -28,6 +22,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         seeds: [u8; 32],
+        max_number_of_markets: u32
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
 
@@ -45,11 +40,13 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
+        let state_size = PoolHeader::LEN + max_number_of_markets as usize * instruction::MARKET_DATA_SIZE;
+
         let init_pool_account = create_account(
             &payer_account.key,
             &pool_key,
-            rent.minimum_balance(POOL_DATA_SIZE),
-            POOL_DATA_SIZE as u64,
+            rent.minimum_balance(state_size),
+            state_size as u64,
             &program_id,
         );
 
@@ -108,9 +105,13 @@ impl Processor {
         match instruction {
             PoolInstruction::Init {
                 seeds,
+                max_number_of_markets
             } => {
                 msg!("Instruction: Init");
-                Self::process_init(program_id, accounts, seeds)
+                Self::process_init(program_id,
+                    accounts,
+                    seeds,
+                    max_number_of_markets)
             },
             PoolInstruction::Create {
                 seeds,
