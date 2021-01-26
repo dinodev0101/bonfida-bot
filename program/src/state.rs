@@ -28,7 +28,6 @@ impl Pack for PoolHeader {
         for i in 0..32 {
             target[i] = signal_provider_bytes[i];
         }
-
         target[32] = self.is_initialized as u8;
     }
 
