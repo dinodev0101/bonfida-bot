@@ -2,7 +2,7 @@ use crate::{
     state::PoolHeader,
     error::BonfidaBotError
 };
-use std::{collections::HashMap, convert::TryInto, mem::size_of};
+use std::{convert::TryInto, mem::size_of};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction}, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{Sysvar, clock::Clock, rent}};
 
 pub const MARKET_DATA_SIZE: usize = 10;

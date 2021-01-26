@@ -1,4 +1,4 @@
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 use solana_program::{
     program_error::ProgramError,
@@ -9,13 +9,19 @@ use solana_program::{
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
-    pub amount: u64,
+    pub amount_in_token: u64
+}
+#[derive(Debug, PartialEq)]
+pub enum PoolStatus {
+    UNLOCKED,
+    LOCKED,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
     pub signal_provider: Pubkey,
-    pub is_initialized: bool
+    pub is_initialized: bool,
+    pub status: PoolStatus,
 }
 
 impl Sealed for PoolHeader {}
@@ -33,11 +39,44 @@ impl Pack for PoolHeader {
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let signal_provider = Pubkey::new(&src[..32]);
-        let is_initialized = src[32] == 1;
+        let is_initialized = (src[32] & 0xf) == 1;
+        let status = match src[32] >> 4 {
+            0 => {PoolStatus::UNLOCKED},
+            1 => {PoolStatus::LOCKED},
+            _ => return Err(ProgramError::InvalidAccountData)
+        };
         Ok(Self {
             signal_provider,
             is_initialized,
+            status
         })
+    }
+
+    fn unpack(input: &[u8]) -> Result<Self, ProgramError>
+    where
+        Self: IsInitialized,
+    {
+        let value = Self::unpack_unchecked(input)?;
+        if value.is_initialized() {
+            Ok(value)
+        } else {
+            Err(ProgramError::UninitializedAccount)
+        }
+    }
+
+    fn unpack_unchecked(input: &[u8]) -> Result<Self, ProgramError> {
+        if input.len() != Self::LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        Ok(Self::unpack_from_slice(input)?)
+    }
+
+    fn pack(src: Self, dst: &mut [u8]) -> Result<(), ProgramError> {
+        if dst.len() != Self::LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        src.pack_into_slice(dst);
+        Ok(())
     }
 }
 
@@ -55,7 +94,7 @@ impl Pack for PoolAsset {
 
     fn pack_into_slice(&self, target: &mut [u8]) {
         let mint_address_bytes = self.mint_address.to_bytes();
-        let amount_bytes = self.amount.to_le_bytes();
+        let amount_bytes = self.amount_in_token.to_le_bytes();
         for i in 0..32 {
             target[i] = mint_address_bytes[i]
         }
@@ -67,18 +106,31 @@ impl Pack for PoolAsset {
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let mint_address = Pubkey::new(&src[..32]);
-        let amount = u64::from_le_bytes(src[32..40].try_into().unwrap());
+        let amount_in_token = u64::from_le_bytes(src[32..40].try_into().unwrap());
         Ok(Self {
             mint_address,
-            amount
+            amount_in_token
         })
     }
+}
+
+fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
+    let number_of_assets = input.len() / PoolAsset::LEN;
+    let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
+    let mut offset = 0;
+    for _ in 0..number_of_assets{
+        output.push(PoolAsset::unpack_from_slice(
+            &input[offset..offset + PoolAsset::LEN],
+        )?);
+        offset += PoolAsset::LEN;
+    }
+    Ok(output)
 }
 
 
 #[cfg(test)]
 mod tests {
-    use super::PoolHeader;
+    use super::{PoolHeader, PoolStatus};
     use solana_program::{program_pack::Pack, pubkey::Pubkey};
 
     #[test]
@@ -86,6 +138,7 @@ mod tests {
         let header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
             is_initialized: true,
+            status: PoolStatus::UNLOCKED
         };
 
         let state_size = PoolHeader::LEN;

@@ -15,8 +15,7 @@ use solana_program::{
     sysvar::{clock::Clock, Sysvar},
 };
 use spl_token::{instruction::transfer, state::Account};
-
-use crate::{instruction::{self, PoolInstruction}, state::PoolHeader};
+use crate::{instruction::{self, PoolInstruction}, state::{PoolHeader, PoolStatus}};
 
 
 pub struct Processor {}
@@ -98,7 +97,8 @@ impl Processor {
 
         let state_header = PoolHeader {
             signal_provider: *signal_provider_key,
-            is_initialized: true
+            is_initialized: true,
+            status: PoolStatus::UNLOCKED
         };
 
         let mut data = pool_account.data.borrow_mut();
