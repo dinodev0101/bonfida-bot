@@ -1,10 +1,6 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 
-use solana_program::{
-    program_error::ProgramError,
-    program_pack::{IsInitialized, Pack, Sealed},
-    pubkey::Pubkey,
-};
+use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
 
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
@@ -115,6 +111,7 @@ impl Pack for PoolAsset {
 
 pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
     let number_of_assets = input.len() / PoolAsset::LEN;
+    msg!("number_of_assets: {:?}", number_of_assets);
     let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
     let mut offset = 0;
     for _ in 0..number_of_assets{
@@ -129,7 +126,7 @@ pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
 
 #[cfg(test)]
 mod tests {
-    use super::{PoolHeader, PoolStatus};
+    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets};
     use solana_program::{program_pack::Pack, pubkey::Pubkey};
 
     #[test]
@@ -140,19 +137,27 @@ mod tests {
             status: PoolStatus::UNLOCKED
         };
 
-        let state_size = PoolHeader::LEN;
-        let mut state_array = [0u8; 33];
-        header_state.pack_into_slice(&mut state_array[..state_size]);
+        let header_size = PoolHeader::LEN;
+        let mut state_array = [0u8; 113];
+        header_state.pack_into_slice(&mut state_array[..header_size]);
 
-        let packed = Vec::from(state_array);
-        let mut expected = Vec::with_capacity(state_size);
-        expected.extend_from_slice(&header_state.signal_provider.to_bytes());
-        expected.extend_from_slice(&[header_state.is_initialized as u8]);
 
-        assert_eq!(expected, packed);
-        assert_eq!(packed.len(), state_size);
-        let unpacked_header =
-        PoolHeader::unpack(&packed[..PoolHeader::LEN]).unwrap();
+        let pool_asset = PoolAsset {
+            mint_address: Pubkey::new_unique(),
+            amount_in_token: 99
+        };
+        let pool_asset_2 = PoolAsset {
+            mint_address: Pubkey::new_unique(),
+            amount_in_token: 499
+        };
+        pool_asset.pack_into_slice(&mut state_array[header_size..]);
+        pool_asset_2.pack_into_slice(&mut state_array[header_size+PoolAsset::LEN..]);
+
+        let unpacked_header = PoolHeader::unpack(&state_array[..PoolHeader::LEN]).unwrap();
         assert_eq!(unpacked_header, header_state);
+
+        let unpacked_pool_assets = unpack_assets(&state_array[PoolHeader::LEN..]).unwrap();
+        assert_eq!(unpacked_pool_assets[0], pool_asset);
+        assert_eq!(unpacked_pool_assets[1], pool_asset_2);
     }
 }

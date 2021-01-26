@@ -30,6 +30,7 @@ impl PrintProgramError for BonfidaBotError {
     {
         match self {
             BonfidaBotError::InvalidInstruction => msg!("Error: Invalid instruction!"),
+            BonfidaBotError::Overflow => msg!("Error: Arithmetic operation overflow!")
         }
     }
 }

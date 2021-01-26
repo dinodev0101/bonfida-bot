@@ -1,21 +1,9 @@
-use std::{cmp::min, collections::HashMap};
+use std::{cmp::min, collections::HashMap, num::NonZeroU64};
 
-use solana_program::{
-    account_info::{next_account_info, AccountInfo},
-    decode_error::DecodeError,
-    entrypoint::ProgramResult,
-    msg,
-    program::{invoke, invoke_signed},
-    program_error::PrintProgramError,
-    program_error::ProgramError,
-    program_pack::Pack,
-    pubkey::Pubkey,
-    rent::Rent,
-    system_instruction::create_account,
-    sysvar::{clock::Clock, Sysvar},
-};
-use spl_token::{instruction::transfer, state::Account};
-use crate::{instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets}};
+use serum_dex::{instruction::{SelfTradeBehavior, initialize_market}, matching::{OrderType, Side}};
+use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
+use spl_token::{instruction::{initialize_mint, mint_to, transfer}, state::Account, state::Mint};
+use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets}};
 
 
 pub struct Processor {}
@@ -31,15 +19,29 @@ impl Processor {
 
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_sysvar_account = next_account_info(accounts_iter)?;
+        let spl_token_program_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
+        let mint_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
 
         let rent = Rent::from_account_info(rent_sysvar_account)?;
 
+        if spl_token_program_account.key != &spl_token::id(){
+            msg!("Invalid spl token program account");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         // Find the non reversible public key for the pool account via the seed
-        let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
+        let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id)?;
         if pool_key != *pool_account.key {
             msg!("Provided pool account is invalid");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Find the non reversible public key for the pool account via the seed
+        let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id)?;
+        if mint_key != *mint_account.key {
+            msg!("Provided mint account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -53,6 +55,22 @@ impl Processor {
             &program_id,
         );
 
+        let init_mint_account = create_account(
+            &payer_account.key,
+            &pool_key,
+            rent.minimum_balance(Mint::LEN),
+            Mint::LEN as u64,
+            &spl_token_program_account.key,
+        );
+
+        let init_mint = initialize_mint(
+            &spl_token_program_account.key,
+            &pool_key,
+            &pool_key,
+            None,
+            6,
+        )?;
+
         invoke_signed(
             &init_pool_account,
             &[
@@ -62,6 +80,25 @@ impl Processor {
             ],
             &[&[&pool_seed]],
         )?;
+
+        invoke_signed(
+            &init_mint_account,
+            &[
+                system_program_account.clone(),
+                payer_account.clone(),
+                mint_account.clone()
+            ],
+            &[&[&pool_seed, &[1]]]
+        )?;
+
+        invoke(
+            &init_mint,
+            &[
+                mint_account.clone(),
+                rent_sysvar_account.clone()
+            ]
+        )?;
+
         Ok(())
     }
 
@@ -118,6 +155,8 @@ impl Processor {
 
         let spl_token_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
+        let mint_account = next_account_info(accounts_iter)?;
+        let target_pool_token_account = next_account_info(accounts_iter)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
@@ -134,11 +173,18 @@ impl Processor {
         }
 
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
+        let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
         // Safety verifications
         if pool_key != *pool_account.key {
             msg!("Provided pool account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
+
+        if mint_key != *mint_account.key {
+            msg!("Provided mint account is invalid");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         if !source_owner_account.is_signer {
             msg!("Source token account owner should be a signer.");
             return Err(ProgramError::InvalidArgument);
@@ -153,13 +199,15 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
+
+
         // Compute buy-in amount. The effective buy-in amount can be less than the
         // input_token_amount as the source accounts need to satisfy the pool asset ratios
         let mut pool_token_effective_amount = std::u64::MAX;
         for i in 0..nb_assets {
             let source_asset_amount = Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
             pool_token_effective_amount = min(
-                source_asset_amount.checked_div(pool_assets[i].amount_in_token).unwrap(), 
+                source_asset_amount.checked_div(pool_assets[i].amount_in_token).unwrap_or(std::u64::MAX), 
                 pool_token_effective_amount
             );
         }
@@ -167,13 +215,19 @@ impl Processor {
         
         // Execute buy in
         for i in 0..nb_assets {
+            let amount = pool_token_effective_amount
+                .checked_mul(pool_assets[i].amount_in_token)
+                .ok_or(BonfidaBotError::Overflow)?;
+            if amount == 0 {
+                break;
+            }
             let instruction = transfer(
                 spl_token_account.key,
                 source_assets_accounts[i].key,
                 pool_assets_accounts[i].key,
                 source_owner_account.key,
                 &[],
-                pool_token_effective_amount.checked_mul(pool_assets[i].amount_in_token).unwrap(),
+                amount,
             )?;
             invoke(
                 &instruction,
@@ -185,6 +239,41 @@ impl Processor {
                 ],
             )?;
         }
+
+        let instruction = mint_to(
+            spl_token_account.key, 
+            &mint_key, 
+            target_pool_token_account.key, 
+            &pool_key, 
+            &[], 
+            pool_token_effective_amount
+        )?;
+
+        invoke_signed(
+            &instruction, 
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                target_pool_token_account.clone(),
+                pool_account.clone()
+            ], 
+            &[&[&pool_seed]],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn process_create_order(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        side:Side,
+        limit_price: NonZeroU64,
+        max_qty: NonZeroU64,
+        order_type: OrderType,
+        client_id: u64,
+        self_trade_behavior: SelfTradeBehavior
+    ) -> ProgramResult {
+        
 
         Ok(())
     }
@@ -232,6 +321,14 @@ impl Processor {
                     pool_token_amount
                 )
             }
+            PoolInstruction::CreateOrder {
+                side,
+                limit_price,
+                max_qty,
+                order_type,
+                client_id,
+                self_trade_behavior
+            } => {Ok(())}
         }
     }
 }

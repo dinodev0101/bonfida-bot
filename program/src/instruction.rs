@@ -2,7 +2,8 @@ use crate::{
     state::PoolHeader,
     error::BonfidaBotError
 };
-use std::{convert::TryInto, mem::size_of};
+use std::{convert::TryInto, mem::size_of, num::NonZeroU64};
+use serum_dex::{instruction::{NewOrderInstructionV2, SelfTradeBehavior}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction}, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{Sysvar, clock::Clock, rent}};
 
 pub const MARKET_DATA_SIZE: usize = 10;
@@ -23,7 +24,7 @@ pub enum PoolInstruction {
         max_number_of_markets: u32
     },
     /// Creates a new pool from an empty (uninitialized) one. The two operations need to
-    /// be seperated as accound data allocation needs to be first processed
+    /// be seperated as account data allocation needs to be first processed
     /// by the network before being overwritten.
     ///
     /// Accounts expected by this instruction:
@@ -48,12 +49,23 @@ pub enum PoolInstruction {
     ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets in the pool account data 
     ///   M+3. `[signer]` The source owner account
-    ///   M+4..M+K+4. `[]` The K token source token accounts in the same order as above
+    ///   M+4..2M+4. `[]` The M token source token accounts in the same order as above
     Deposit {
         pool_seed: [u8; 32],
         // The amount of pool token the source wishes to buy 
         pool_token_amount: u64
+    },
+    /// As a signal provider, create a new serum order for the pool.
+    /// Amounts are translated into proportions of the pool between 0 and 2**16 - 1
+    CreateOrder{
+        side: Side,
+        limit_price: NonZeroU64,
+        max_qty: NonZeroU64,
+        order_type: OrderType,
+        client_id: u64,
+        self_trade_behavior: SelfTradeBehavior
     }
+
 }
 
 impl PoolInstruction {
@@ -106,6 +118,52 @@ impl PoolInstruction {
                     pool_token_amount
                 }
             }
+            3 => {
+                let side = match rest.get(0).ok_or(InvalidInstruction)?{
+                    0 => {Side::Bid}
+                    1 => {Side::Ask}
+                    _ => {return Err(InvalidInstruction.into())}
+                };
+                let limit_price = NonZeroU64::new(
+                    rest
+                        .get(1..9)
+                        .and_then(|slice| slice.try_into().ok())
+                        .map(u64::from_le_bytes)
+                        .ok_or(InvalidInstruction)?)
+                    .ok_or(InvalidInstruction)?;
+                let max_qty = NonZeroU64::new(
+                    rest
+                        .get(9..17)
+                        .and_then(|slice| slice.try_into().ok())
+                        .map(u64::from_le_bytes)
+                        .ok_or(InvalidInstruction)?)
+                    .ok_or(InvalidInstruction)?;
+                
+                let order_type = match rest.get(17).ok_or(InvalidInstruction)?{
+                    0 => {OrderType::Limit}
+                    1 => {OrderType::ImmediateOrCancel}
+                    2 => {OrderType::PostOnly}
+                    _ => {return Err(InvalidInstruction.into())}
+                };
+                let client_id = rest
+                    .get(18..26)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let self_trade_behavior = match rest.get(26).ok_or(InvalidInstruction)?{
+                    0 => {SelfTradeBehavior::DecrementTake}
+                    1 => {SelfTradeBehavior::CancelProvide}
+                    _ => {return Err(InvalidInstruction.into())}
+                };
+                Self::CreateOrder {
+                    side,
+                    limit_price,
+                    max_qty,
+                    order_type,
+                    client_id,
+                    self_trade_behavior
+                }
+            }
             _ => {
                 msg!("Unsupported tag");
                 return Err(InvalidInstruction.into());
@@ -116,12 +174,12 @@ impl PoolInstruction {
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::Init {
+            Self::Init {
                 pool_seed,
                 max_number_of_markets
             } => {
                 buf.push(0);
-                buf.extend_from_slice(&pool_seed);
+                buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&max_number_of_markets.to_le_bytes());
             }
             Self::Create {
@@ -136,9 +194,35 @@ impl PoolInstruction {
                 pool_seed,
                 pool_token_amount
             } => {
-                buf.push(1);
+                buf.push(2);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&pool_token_amount.to_le_bytes());
+            },
+            Self::CreateOrder {
+                side,
+                limit_price,
+                max_qty,
+                order_type,
+                client_id,
+                self_trade_behavior   
+            } => {
+                buf.push(3);
+                buf.extend_from_slice(&match side {
+                    Side::Bid => {0u8}
+                    Side::Ask => {1}
+                }.to_le_bytes());
+                buf.extend_from_slice(&limit_price.get().to_le_bytes());
+                buf.extend_from_slice(&max_qty.get().to_le_bytes());
+                buf.extend_from_slice(&match order_type {
+                    OrderType::Limit => {0u8}
+                    OrderType::ImmediateOrCancel => {1}
+                    OrderType::PostOnly => {2}
+                }.to_le_bytes());
+                buf.extend_from_slice(&client_id.to_le_bytes());
+                buf.extend_from_slice(&match self_trade_behavior {
+                    SelfTradeBehavior::DecrementTake => {0u8}
+                    SelfTradeBehavior::CancelProvide => {1}
+                }.to_le_bytes());
             }
         };
         buf
@@ -259,5 +343,18 @@ mod test {
         let packed_deposit = original_deposit.pack();
         let unpacked_deposit = PoolInstruction::unpack(&packed_deposit).unwrap();
         assert_eq!(original_deposit, unpacked_deposit);
+
+        let original_create_order = PoolInstruction::CreateOrder {
+            side: Side::Ask,
+            limit_price: NonZeroU64::new(23).unwrap(),
+            max_qty: NonZeroU64::new(500).unwrap(),
+            order_type: OrderType::Limit,
+            client_id: 0xff44,
+            self_trade_behavior: SelfTradeBehavior::DecrementTake
+        };
+        let packed_create_order = original_create_order.pack();
+        let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();
+        assert_eq!(original_create_order, unpacked_create_order);
+
     }
 }

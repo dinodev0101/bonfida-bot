@@ -8,6 +8,8 @@ pub enum BonfidaBotError {
     // Invalid instruction
     #[error("Invalid Instruction")]
     InvalidInstruction,
+    #[error("Arithmetic operation overflow")]
+    Overflow
 }
 
 impl From<BonfidaBotError> for ProgramError {
