@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use solana_program::{
     program_error::ProgramError,
     program_pack::{IsInitialized, Pack, Sealed},
@@ -5,7 +7,9 @@ use solana_program::{
 };
 
 #[derive(Debug, PartialEq)]
-pub struct PoolMarket {
+pub struct PoolAccount {
+    pub mint_address: Pubkey,
+    pub amount: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,22 +48,34 @@ impl IsInitialized for PoolHeader {
     }
 }
 
-// impl Sealed for PoolMarket {}
 
-// impl Pack for PoolMarket {
-//     const LEN: usize = 33;
-//     fn pack_into_slice(&self, target: &mut [u8]) {
-//     }
+impl Sealed for PoolAccount {}
 
-//     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-//         let signal_provider = Pubkey::new(&src[..32]);
-//         let is_initialized = src[32] == 1;
-//         Ok(Self {
-//             signal_provider,
-//             is_initialized,
-//         })
-//     }
-// }
+impl Pack for PoolAccount {
+    const LEN: usize = 40;
+
+    fn pack_into_slice(&self, target: &mut [u8]) {
+        let mint_address_bytes = self.mint_address.to_bytes();
+        let amount_bytes = self.amount.to_le_bytes();
+        for i in 0..32 {
+            target[i] = mint_address_bytes[i]
+        }
+
+        for i in 32..40 {
+            target[i] = amount_bytes[i-32]
+        }
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        let mint_address = Pubkey::new(&src[..32]);
+        let amount = u64::from_le_bytes(src[32..40].try_into().unwrap());
+        Ok(Self {
+            mint_address,
+            amount
+        })
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
