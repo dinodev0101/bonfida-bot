@@ -86,7 +86,6 @@ impl IsInitialized for PoolHeader {
     }
 }
 
-
 impl Sealed for PoolAsset {}
 
 impl Pack for PoolAsset {
@@ -114,7 +113,7 @@ impl Pack for PoolAsset {
     }
 }
 
-fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
+pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
     let number_of_assets = input.len() / PoolAsset::LEN;
     let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
     let mut offset = 0;

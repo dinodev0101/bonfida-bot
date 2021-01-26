@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cmp::min, collections::HashMap};
 
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
@@ -15,7 +15,7 @@ use solana_program::{
     sysvar::{clock::Clock, Sysvar},
 };
 use spl_token::{instruction::transfer, state::Account};
-use crate::{instruction::{self, PoolInstruction}, state::{PoolHeader, PoolStatus}};
+use crate::{instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets}};
 
 
 pub struct Processor {}
@@ -111,6 +111,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
+        // The amount of pooltokens wished to be bought
         pool_token_amount: u64,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
@@ -118,9 +119,9 @@ impl Processor {
         let spl_token_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
 
-        // pool_header = PoolHeader::unpack(pool_account.data.borrow());
-        // let nb_assets = pool_header.size;
-        let nb_assets = 2;
+        let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+        let nb_assets = pool_assets.len();
 
         let mut pool_assets_accounts: Vec<&AccountInfo> = vec![];
         let mut source_assets_accounts: Vec<&AccountInfo> = vec![];
@@ -146,10 +147,24 @@ impl Processor {
             msg!("Program should own pool account");
             return Err(ProgramError::InvalidArgument);
         }
+        if pool_header.status == PoolStatus::LOCKED {
+            msg!("Pool is currently locked by signal provider, \
+                no buy-ins are possible");
+            return Err(ProgramError::InvalidArgument);
+        }
 
-        // Compute buy in amount
-        let buy_in_amounts: Vec<u64> = vec![];
-
+        // Compute buy-in amount. The effective buy-in amount can be less than the
+        // input_token_amount as the source accounts need to satisfy the pool asset ratios
+        let mut pool_token_effective_amount = std::u64::MAX;
+        for i in 0..nb_assets {
+            let source_asset_amount = Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
+            pool_token_effective_amount = min(
+                source_asset_amount.checked_div(pool_assets[i].amount_in_token).unwrap(), 
+                pool_token_effective_amount
+            );
+        }
+        pool_token_effective_amount = min(pool_token_amount, pool_token_effective_amount);
+        
         // Execute buy in
         for i in 0..nb_assets {
             let instruction = transfer(
@@ -158,7 +173,7 @@ impl Processor {
                 pool_assets_accounts[i].key,
                 source_owner_account.key,
                 &[],
-                buy_in_amounts[i],
+                pool_token_effective_amount.checked_mul(pool_assets[i].amount_in_token).unwrap(),
             )?;
             invoke(
                 &instruction,
@@ -170,7 +185,7 @@ impl Processor {
                 ],
             )?;
         }
-                
+
         Ok(())
     }
 

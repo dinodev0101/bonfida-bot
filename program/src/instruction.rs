@@ -45,9 +45,10 @@ pub enum PoolInstruction {
     ///   * Single owner
     ///   0. `[]` The spl-token program account
     ///   1. `[]` The pool account
-    ///   2..M+2. `[]` The M pool (associated) token assets accounts
+    ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
+    ///      corresponding PoolAssets in the pool account data 
     ///   M+3. `[signer]` The source owner account
-    ///   M+4..M+K+4. `[]` The K token source token accounts
+    ///   M+4..M+K+4. `[]` The K token source token accounts in the same order as above
     Deposit {
         pool_seed: [u8; 32],
         // The amount of pool token the source wishes to buy 

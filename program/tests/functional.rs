@@ -33,6 +33,7 @@ async fn test_bonfida_bot() {
     // Initialize the pool
     let init_instruction = [init(
         &system_program::id(),
+        &sysvar::rent::id(),
         &program_id,
         &payer.pubkey(),
         &pool_key,
