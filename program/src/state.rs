@@ -7,7 +7,7 @@ use solana_program::{
 };
 
 #[derive(Debug, PartialEq)]
-pub struct PoolAccount {
+pub struct PoolAsset {
     pub mint_address: Pubkey,
     pub amount: u64,
 }
@@ -49,9 +49,9 @@ impl IsInitialized for PoolHeader {
 }
 
 
-impl Sealed for PoolAccount {}
+impl Sealed for PoolAsset {}
 
-impl Pack for PoolAccount {
+impl Pack for PoolAsset {
     const LEN: usize = 40;
 
     fn pack_into_slice(&self, target: &mut [u8]) {
