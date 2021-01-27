@@ -2,7 +2,7 @@ use crate::{
     state::PoolHeader,
     error::BonfidaBotError
 };
-use std::{convert::TryInto, mem::size_of, num::NonZeroU64};
+use std::{convert::TryInto, mem::size_of, num::{NonZeroU16, NonZeroU64}};
 use serum_dex::{instruction::{NewOrderInstructionV2, SelfTradeBehavior}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction}, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{Sysvar, clock::Clock, rent}};
 
@@ -58,9 +58,10 @@ pub enum PoolInstruction {
     /// As a signal provider, create a new serum order for the pool.
     /// Amounts are translated into proportions of the pool between 0 and 2**16 - 1
     CreateOrder{
+        pool_seed: [u8; 32],
         side: Side,
         limit_price: NonZeroU64,
-        max_qty: NonZeroU64,
+        max_qty: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior
@@ -119,43 +120,48 @@ impl PoolInstruction {
                 }
             }
             3 => {
-                let side = match rest.get(0).ok_or(InvalidInstruction)?{
+                let pool_seed: [u8; 32] = rest
+                    .get(..32)
+                    .and_then(|slice| slice.try_into().ok())
+                    .ok_or(InvalidInstruction)?;
+                let side = match rest.get(32).ok_or(InvalidInstruction)?{
                     0 => {Side::Bid}
                     1 => {Side::Ask}
                     _ => {return Err(InvalidInstruction.into())}
                 };
                 let limit_price = NonZeroU64::new(
                     rest
-                        .get(1..9)
+                        .get(33..41)
                         .and_then(|slice| slice.try_into().ok())
                         .map(u64::from_le_bytes)
                         .ok_or(InvalidInstruction)?)
                     .ok_or(InvalidInstruction)?;
-                let max_qty = NonZeroU64::new(
+                let max_qty = NonZeroU16::new(
                     rest
-                        .get(9..17)
+                        .get(41..43)
                         .and_then(|slice| slice.try_into().ok())
-                        .map(u64::from_le_bytes)
+                        .map(u16::from_le_bytes)
                         .ok_or(InvalidInstruction)?)
                     .ok_or(InvalidInstruction)?;
                 
-                let order_type = match rest.get(17).ok_or(InvalidInstruction)?{
+                let order_type = match rest.get(43).ok_or(InvalidInstruction)?{
                     0 => {OrderType::Limit}
                     1 => {OrderType::ImmediateOrCancel}
                     2 => {OrderType::PostOnly}
                     _ => {return Err(InvalidInstruction.into())}
                 };
                 let client_id = rest
-                    .get(18..26)
+                    .get(43..51)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
-                let self_trade_behavior = match rest.get(26).ok_or(InvalidInstruction)?{
+                let self_trade_behavior = match rest.get(51).ok_or(InvalidInstruction)?{
                     0 => {SelfTradeBehavior::DecrementTake}
                     1 => {SelfTradeBehavior::CancelProvide}
                     _ => {return Err(InvalidInstruction.into())}
                 };
                 Self::CreateOrder {
+                    pool_seed,
                     side,
                     limit_price,
                     max_qty,
@@ -199,6 +205,7 @@ impl PoolInstruction {
                 buf.extend_from_slice(&pool_token_amount.to_le_bytes());
             },
             Self::CreateOrder {
+                pool_seed,
                 side,
                 limit_price,
                 max_qty,
@@ -207,6 +214,7 @@ impl PoolInstruction {
                 self_trade_behavior   
             } => {
                 buf.push(3);
+                buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&match side {
                     Side::Bid => {0u8}
                     Side::Ask => {1}
@@ -345,9 +353,10 @@ mod test {
         assert_eq!(original_deposit, unpacked_deposit);
 
         let original_create_order = PoolInstruction::CreateOrder {
+            pool_seed: [50u8; 32],
             side: Side::Ask,
             limit_price: NonZeroU64::new(23).unwrap(),
-            max_qty: NonZeroU64::new(500).unwrap(),
+            max_qty: NonZeroU16::new(500).unwrap(),
             order_type: OrderType::Limit,
             client_id: 0xff44,
             self_trade_behavior: SelfTradeBehavior::DecrementTake

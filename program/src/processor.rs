@@ -1,6 +1,6 @@
-use std::{cmp::min, collections::HashMap, num::NonZeroU64};
+use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64}};
 
-use serum_dex::{instruction::{SelfTradeBehavior, initialize_market}, matching::{OrderType, Side}};
+use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
 use spl_token::{instruction::{initialize_mint, mint_to, transfer}, state::Account, state::Mint};
 use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets}};
@@ -134,8 +134,7 @@ impl Processor {
 
         let state_header = PoolHeader {
             signal_provider: *signal_provider_key,
-            is_initialized: true,
-            status: PoolStatus::UNLOCKED
+            status: PoolStatus::Unlocked
         };
 
         let mut data = pool_account.data.borrow_mut();
@@ -193,7 +192,7 @@ impl Processor {
             msg!("Program should own pool account");
             return Err(ProgramError::InvalidArgument);
         }
-        if pool_header.status == PoolStatus::LOCKED {
+        if pool_header.status == PoolStatus::Locked {
             msg!("Pool is currently locked by signal provider, \
                 no buy-ins are possible");
             return Err(ProgramError::InvalidArgument);
@@ -266,14 +265,94 @@ impl Processor {
     pub fn process_create_order(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
+        pool_seed: [u8; 32],
         side:Side,
         limit_price: NonZeroU64,
-        max_qty: NonZeroU64,
+        max_qty: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior
     ) -> ProgramResult {
-        
+        let account_iter = &mut accounts.iter();
+
+        let market = next_account_info(account_iter)?;
+        let pool_token_account = next_account_info(account_iter)?;
+        let openorders_account = next_account_info(account_iter)?;
+        let request_queue = next_account_info(account_iter)?;
+        let payer = next_account_info(account_iter)?;
+        let pool_account = next_account_info(account_iter)?;
+        let coin_vault = next_account_info(account_iter)?;
+        let pc_vault = next_account_info(account_iter)?;
+        let spl_token_program = next_account_info(account_iter)?;
+        let rent_sysvar_account = next_account_info(account_iter)?;
+        let dex_program_id = next_account_info(account_iter)?;
+        let discount_account = next_account_info(account_iter).ok();
+
+        let coin_mint = Pubkey::new(&market.data.borrow()[48..80]);
+        let pc_mint = Pubkey::new(&market.data.borrow()[80..112]);
+
+        let pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+
+        let asset_index = pool_assets
+            .binary_search_by_key(&coin_mint, |a| {a.mint_address})
+            .map_err(|_| {ProgramError::InvalidArgument})?;
+
+        let mut coin_asset = pool_assets[asset_index].clone();
+        let coin_account = Account::unpack(&pool_token_account.data.borrow())?;
+
+        let cast_value: u128 = coin_asset.amount_in_token.into();
+        let cast_total: u128 = coin_account.amount.into();
+
+        let amount_to_trade = (cast_total.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
+        let new_amount_in_token = (cast_value.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
+
+        coin_asset.amount_in_token = new_amount_in_token;
+
+        coin_asset.pack_into_slice(&mut pool_account.data.borrow_mut()[PoolHeader::LEN + asset_index * PoolAsset::LEN..]);
+
+
+        let new_order_instruction = new_order(
+            market.key,
+            openorders_account.key,
+            request_queue.key,
+            payer.key,
+            pool_account.key,
+            coin_vault.key,
+            pc_vault.key,
+            spl_token_program.key,
+            rent_sysvar_account.key,
+            discount_account.map(|account| {account.key}),
+            dex_program_id.key,
+            side,
+            limit_price,
+            NonZeroU64::new(amount_to_trade).unwrap(),
+            order_type,
+            client_id,
+            self_trade_behavior
+        )?;
+
+        let mut account_infos = vec![
+                market.clone(),
+                openorders_account.clone(),
+                request_queue.clone(),
+                payer.clone(),
+                pool_account.clone(),
+                coin_vault.clone(),
+                pc_vault.clone(),
+                spl_token_program.clone(),
+                rent_sysvar_account.clone()
+        ];
+
+        if let Some(account) = discount_account {
+            account_infos.push(account.clone());
+        }
+
+        invoke_signed(
+            &new_order_instruction,
+            &account_infos,
+            &[&[&pool_seed]]
+        )?;
 
         Ok(())
     }
@@ -322,13 +401,27 @@ impl Processor {
                 )
             }
             PoolInstruction::CreateOrder {
+                pool_seed,
                 side,
                 limit_price,
                 max_qty,
                 order_type,
                 client_id,
                 self_trade_behavior
-            } => {Ok(())}
+            } => {
+                msg!("Instruction: Deposit into Pool");
+                Self::process_create_order(
+                    program_id, 
+                    accounts,
+                    pool_seed, 
+                    side, 
+                    limit_price, 
+                    max_qty,
+                    order_type, 
+                    client_id, 
+                    self_trade_behavior
+                )
+            }
         }
     }
 }

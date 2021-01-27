@@ -1,24 +1,31 @@
-use std::convert::TryInto;
+use std::{cmp::Ordering, convert::TryInto};
 
 use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
     pub amount_in_token: u64
 }
 #[derive(Debug, PartialEq)]
 pub enum PoolStatus {
-    UNLOCKED,
-    LOCKED,
+    Uninitialized,
+    Unlocked,
+    Locked,
+    /// Maximum number of pending orders is 63.
+    PendingOrder(u8),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
     pub signal_provider: Pubkey,
-    pub is_initialized: bool,
     pub status: PoolStatus,
 }
+
+const STATUS_PENDING_ORDER_FLAG:u8 = 3 << 6;
+const STATUS_PENDING_ORDER_MASK:u8 = 0x3f;
+const STATUS_LOCKED_FLAG:u8 = 2 << 6;
+const STATUS_UNLOCKED_FLAG:u8 = 1 << 6;
 
 impl Sealed for PoolHeader {}
 
@@ -30,20 +37,25 @@ impl Pack for PoolHeader {
         for i in 0..32 {
             target[i] = signal_provider_bytes[i];
         }
-        target[32] = self.is_initialized as u8;
+        target[32] = match self.status {
+            PoolStatus::Uninitialized => {0}
+            PoolStatus::Unlocked => {STATUS_UNLOCKED_FLAG}
+            PoolStatus::Locked => {STATUS_LOCKED_FLAG}
+            PoolStatus::PendingOrder(n) => {STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & n)}
+        }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let signal_provider = Pubkey::new(&src[..32]);
-        let is_initialized = (src[32] & 0xf) == 1;
-        let status = match src[32] >> 4 {
-            0 => {PoolStatus::UNLOCKED},
-            1 => {PoolStatus::LOCKED},
+        let status = match src[32] >> 6{
+            0 => {PoolStatus::Uninitialized},
+            1 => {PoolStatus::Unlocked},
+            2 => {PoolStatus::Locked},
+            3 => {PoolStatus::PendingOrder(src[32] & STATUS_PENDING_ORDER_MASK)}
             _ => return Err(ProgramError::InvalidAccountData)
         };
         Ok(Self {
             signal_provider,
-            is_initialized,
             status
         })
     }
@@ -78,7 +90,10 @@ impl Pack for PoolHeader {
 
 impl IsInitialized for PoolHeader {
     fn is_initialized(&self) -> bool {
-        self.is_initialized
+        if let PoolStatus::Uninitialized = self.status {
+            return false
+        }
+        return true
     }
 }
 
@@ -133,8 +148,7 @@ mod tests {
     fn test_state_packing() {
         let header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
-            is_initialized: true,
-            status: PoolStatus::UNLOCKED
+            status: PoolStatus::PendingOrder(39)
         };
 
         let header_size = PoolHeader::LEN;
