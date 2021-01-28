@@ -115,7 +115,7 @@ impl PoolInstruction {
                     .ok_or(InvalidInstruction)?;
 
                 let k = 32;
-                let deposit_amounts = vec![];
+                let mut deposit_amounts = vec![];
                 while rest.len() != 0 {
                     let amount: u64 = u64::from_le_bytes(
                         rest.get(k..(k + 8)).unwrap().try_into().unwrap()
@@ -175,11 +175,11 @@ impl PoolInstruction {
                     _ => {return Err(InvalidInstruction.into())}
                 };
                 let client_id = rest
-                    .get(43..51)
+                    .get(44..52)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
-                let self_trade_behavior = match rest.get(51).ok_or(InvalidInstruction)?{
+                let self_trade_behavior = match rest.get(52).ok_or(InvalidInstruction)?{
                     0 => {SelfTradeBehavior::DecrementTake}
                     1 => {SelfTradeBehavior::CancelProvide}
                     _ => {return Err(InvalidInstruction.into())}

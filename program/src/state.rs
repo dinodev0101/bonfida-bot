@@ -1,8 +1,8 @@
-use std::{cmp::Ordering, convert::TryInto};
+use std::{cmp::Ordering, convert::TryInto, num::NonZeroU8};
 
 use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
 
-pub const FIDA_MINT_KEY: String = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp".to_string();
+pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 pub const FIDA_MIN_AMOUNT: u64 = 1;
 
 #[derive(Debug, PartialEq)]
@@ -15,8 +15,8 @@ pub enum PoolStatus {
     Uninitialized,
     Unlocked,
     Locked,
-    /// Maximum number of pending orders is 63.
-    PendingOrder(u8),
+    /// Maximum number of pending orders is 64, minimum is 1.
+    PendingOrder(NonZeroU8),
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,7 +44,9 @@ impl Pack for PoolHeader {
             PoolStatus::Uninitialized => {0}
             PoolStatus::Unlocked => {STATUS_UNLOCKED_FLAG}
             PoolStatus::Locked => {STATUS_LOCKED_FLAG}
-            PoolStatus::PendingOrder(n) => {STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & n)}
+            PoolStatus::PendingOrder(n) => {
+                STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
+            }
         }
     }
 
@@ -54,7 +56,9 @@ impl Pack for PoolHeader {
             0 => {PoolStatus::Uninitialized},
             1 => {PoolStatus::Unlocked},
             2 => {PoolStatus::Locked},
-            3 => {PoolStatus::PendingOrder(src[32] & STATUS_PENDING_ORDER_MASK)}
+            3 => {PoolStatus::PendingOrder(NonZeroU8::new(
+                (src[32] & STATUS_PENDING_ORDER_MASK) + 1).ok_or(ProgramError::InvalidArgument)?
+            )}
             _ => return Err(ProgramError::InvalidAccountData)
         };
         Ok(Self {
@@ -102,6 +106,12 @@ impl IsInitialized for PoolHeader {
 
 impl Sealed for PoolAsset {}
 
+impl IsInitialized for PoolAsset {
+    fn is_initialized(&self) -> bool {
+        self.mint_address != Pubkey::new(&[0u8;32])
+    }
+}
+
 impl Pack for PoolAsset {
     const LEN: usize = 40;
 
@@ -141,17 +151,34 @@ pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
     Ok(output)
 }
 
+pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, ProgramError>{
+    let offset = PoolHeader::LEN + index*PoolAsset::LEN;
+    input
+        .get(offset..offset+PoolAsset::LEN)
+        .ok_or(ProgramError::InvalidArgument)
+        .and_then(|slice| PoolAsset::unpack_unchecked(slice))
+}
+
+pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<(), ProgramError> {
+    let offset = PoolHeader::LEN + index * PoolAsset::LEN;
+    let slice = target.get_mut(offset..offset+PoolAsset::LEN).ok_or(ProgramError::InvalidArgument)?;
+    asset.pack_into_slice(slice);
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU8;
+
     use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets};
-    use solana_program::{program_pack::Pack, pubkey::Pubkey};
+    use solana_program::{program_pack::{Pack, IsInitialized}, pubkey::Pubkey};
 
     #[test]
     fn test_state_packing() {
         let header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
-            status: PoolStatus::PendingOrder(39)
+            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap())
         };
 
         let header_size = PoolHeader::LEN;
@@ -176,5 +203,11 @@ mod tests {
         let unpacked_pool_assets = unpack_assets(&state_array[PoolHeader::LEN..]).unwrap();
         assert_eq!(unpacked_pool_assets[0], pool_asset);
         assert_eq!(unpacked_pool_assets[1], pool_asset_2);
+    }
+
+    #[test]
+    fn test_state_init() {
+        let pool_asset = PoolAsset::unpack_unchecked(&[0u8;PoolAsset::LEN]).unwrap();
+        assert!(!pool_asset.is_initialized());
     }
 }

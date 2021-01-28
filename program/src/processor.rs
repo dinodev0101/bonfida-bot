@@ -1,10 +1,9 @@
-use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64}};
+use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
 
 use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, matching::{OrderType, Side}};
-use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
+use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
 use spl_token::{instruction::{initialize_mint, mint_to, transfer, initialize_account}, state::Account, state::Mint};
-use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, FIDA_MIN_AMOUNT, FIDA_MINT_KEY}};
-use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
+use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PoolAsset, PoolHeader, PoolStatus, pack_asset, unpack_assets, unpack_unchecked_asset}};
 
 pub struct Processor {}
 
@@ -151,7 +150,7 @@ impl Processor {
         }
         
         let mut enough_fida = false;
-        let pool_assets: Vec<PoolAsset> = vec![];
+        let mut pool_assets: Vec<PoolAsset> = vec![];
         for i in 0..number_of_assets {
             let mint_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
 
@@ -258,7 +257,7 @@ impl Processor {
         let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
         // Safety verifications
         if pool_key != *pool_account.key {
-            msg!("Provided pool account is invalid");
+            msg!("Provided pool account doesn't match the provided pool seed");
             return Err(ProgramError::InvalidArgument);
         }
         if mint_key != *mint_account.key {
@@ -352,7 +351,9 @@ impl Processor {
         max_qty: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
-        self_trade_behavior: SelfTradeBehavior
+        self_trade_behavior: SelfTradeBehavior,
+        source_index: usize,
+        target_index: usize
     ) -> ProgramResult {
         let account_iter = &mut accounts.iter();
 
@@ -360,7 +361,6 @@ impl Processor {
         let pool_token_account = next_account_info(account_iter)?;
         let openorders_account = next_account_info(account_iter)?;
         let request_queue = next_account_info(account_iter)?;
-        let payer = next_account_info(account_iter)?;
         let pool_account = next_account_info(account_iter)?;
         let coin_vault = next_account_info(account_iter)?;
         let pc_vault = next_account_info(account_iter)?;
@@ -369,35 +369,91 @@ impl Processor {
         let dex_program_id = next_account_info(account_iter)?;
         let discount_account = next_account_info(account_iter).ok();
 
+
+        let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
+        if pool_account.key != &pool_key {
+            msg!("Provided pool account doesn't match the provided pool seed")
+        }
+
+
         let coin_mint = Pubkey::new(&market.data.borrow()[48..80]);
         let pc_mint = Pubkey::new(&market.data.borrow()[80..112]);
+        let open_orders_account_owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
 
-        let pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
-        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+        if &open_orders_account_owner != pool_account.key {
+            msg!("The pool account should own the open orders account");
+        }
 
-        let asset_index = pool_assets
-            .binary_search_by_key(&coin_mint, |a| {a.mint_address})
-            .map_err(|_| {ProgramError::InvalidArgument})?;
+        let source_account = Account::unpack(&pool_token_account.data.borrow())?;
 
-        let mut coin_asset = pool_assets[asset_index].clone();
-        let coin_account = Account::unpack(&pool_token_account.data.borrow())?;
+        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        match pool_header.status {
+            PoolStatus::Uninitialized => { return Err(ProgramError::UninitializedAccount) }
+            PoolStatus::Unlocked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
+            PoolStatus::Locked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
+            PoolStatus::PendingOrder(_) => {}
+        }
+        let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
+        let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
 
-        let cast_value: u128 = coin_asset.amount_in_token.into();
-        let cast_total: u128 = coin_account.amount.into();
+        if !source_asset.is_initialized(){
+            msg!("The pool has no account at the specificed source index");
+            return Err(ProgramError::InvalidArgument)
+        }
 
+        if source_asset.mint_address != source_account.mint {
+            msg!("Provided coin account does not match the pool source asset")
+        }
+
+        if &source_account.owner != pool_account.key {
+            msg!("Provided coin account should be owned by the pool")
+        }
+
+        let target_mint = match side {
+                Side::Bid => {coin_mint}
+                Side::Ask => {pc_mint}
+            };
+
+        if target_asset.is_initialized(){
+            if target_asset.mint_address != target_mint {
+                msg!("Target asset does not match bid currency");
+                return Err(ProgramError::InvalidArgument)
+            }
+        } else {
+            target_asset.mint_address = target_mint;
+            pack_asset(&mut pool_account.data.borrow_mut(), &target_asset, target_index)?;
+        }
+
+        if source_asset.mint_address != match side {
+            Side::Bid => {pc_mint}
+            Side::Ask => {coin_mint}
+        } {
+            msg!("Wrong source index provided.");
+            return Err(ProgramError::InvalidArgument)
+        }
+
+
+
+        let cast_value: u128 = source_asset.amount_in_token.into();
+        let cast_total: u128 = source_account.amount.into();
+
+        let amount_to_trade_in_token = (cast_value.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
         let amount_to_trade = (cast_total.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
-        let new_amount_in_token = (cast_value.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
 
-        coin_asset.amount_in_token = new_amount_in_token;
+        source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_in_token;
+        if source_asset.amount_in_token == 0 {
+            // Erasing asset
+            source_asset.mint_address = Pubkey::new(&[0u8;32]);
+        }
 
-        coin_asset.pack_into_slice(&mut pool_account.data.borrow_mut()[PoolHeader::LEN + asset_index * PoolAsset::LEN..]);
+        pack_asset(&mut pool_account.data.borrow_mut(), &source_asset, source_index)?;
 
 
         let new_order_instruction = new_order(
             market.key,
             openorders_account.key,
             request_queue.key,
-            payer.key,
+            pool_token_account.key,
             pool_account.key,
             coin_vault.key,
             pc_vault.key,
@@ -417,7 +473,7 @@ impl Processor {
                 market.clone(),
                 openorders_account.clone(),
                 request_queue.clone(),
-                payer.clone(),
+                pool_token_account.clone(),
                 pool_account.clone(),
                 coin_vault.clone(),
                 pc_vault.clone(),
@@ -502,7 +558,9 @@ impl Processor {
                     max_qty,
                     order_type, 
                     client_id, 
-                    self_trade_behavior
+                    self_trade_behavior,
+                    0,
+                    0
                 )
             }
         }
