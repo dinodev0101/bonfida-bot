@@ -4,7 +4,7 @@ use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, 
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
 use spl_token::{instruction::{initialize_mint, mint_to, transfer, initialize_account}, state::Account, state::Mint};
 use spl_associated_token_account::get_associated_token_address;
-use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PoolAsset, PoolHeader, PoolStatus, pack_asset, unpack_assets, unpack_unchecked_asset}};
+use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, OrderState, PoolAsset, PoolHeader, PoolStatus, pack_asset, unpack_assets, unpack_unchecked_asset}};
 
 pub struct Processor {}
 
@@ -97,6 +97,55 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_init_order_tracker(        
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        pool_seed: [u8; 32],
+    ) -> ProgramResult {
+        let accounts_iter = &mut accounts.iter();
+
+        let system_program_account = next_account_info(accounts_iter)?;
+        let rent_sysvar_account = next_account_info(accounts_iter)?;
+        let pool_account = next_account_info(accounts_iter)?;
+        let openorders_account = next_account_info(accounts_iter)?;
+        let payer_account = next_account_info(accounts_iter)?;
+
+        let rent = Rent::from_account_info(rent_sysvar_account)?;
+
+        // Find the non reversible public key for the pool account via the seed
+        let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id)?;
+        if pool_key != *pool_account.key {
+            msg!("Provided pool account is invalid");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Find the non reversible public key for the pool mint account via the seed
+        let order_tracker_key = Pubkey::create_program_address(
+            &[&pool_seed, &openorders_account.key.to_bytes()],
+            &pool_key
+        )?;
+
+        let init_pool_account = create_account(
+            &payer_account.key,
+            &order_tracker_key,
+            rent.minimum_balance(OrderState::LEN),
+            OrderState::LEN as u64,
+            &pool_key,
+        );
+
+        invoke_signed(
+            &init_pool_account,
+            &[
+                system_program_account.clone(),
+                payer_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        Ok(())
+    }
+
     pub fn process_create(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -154,6 +203,12 @@ impl Processor {
         let mut pool_assets: Vec<PoolAsset> = vec![];
         for i in 0..number_of_assets {
             let mint_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            let pool_asset_key = get_associated_token_address(&pool_key, &mint_key);
+
+            if pool_asset_key != *pool_assets_accounts[i as usize].key {
+                msg!("Provided pool asset account is invalid");
+                return Err(ProgramError::InvalidArgument);
+            }
 
             // Verify that the first deposit credits more than the min amount of FIDA tokens
             enough_fida =  (pool_assets_accounts[i as usize].key.to_string() == FIDA_MINT_KEY)
@@ -255,13 +310,13 @@ impl Processor {
         }
 
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
-        let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        let pool_mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
         // Safety verifications
         if pool_key != *pool_account.key {
             msg!("Provided pool account doesn't match the provided pool seed");
             return Err(ProgramError::InvalidArgument);
         }
-        if mint_key != *mint_account.key {
+        if pool_mint_key != *mint_account.key {
             msg!("Provided mint account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
@@ -294,6 +349,15 @@ impl Processor {
         
         // Execute buy in
         for i in 0..nb_assets {
+            let pool_asset_key = get_associated_token_address(
+                &pool_key, 
+                &pool_assets[i].mint_address);
+
+            if pool_asset_key != *pool_assets_accounts[i as usize].key {
+                msg!("Provided pool asset account is invalid");
+                return Err(ProgramError::InvalidArgument);
+            }
+
             let amount = pool_token_effective_amount
                 .checked_mul(pool_assets[i].amount_in_token)
                 .ok_or(BonfidaBotError::Overflow)?;
@@ -322,7 +386,7 @@ impl Processor {
         // Mint the effective amount of pooltokens to the target
         let instruction = mint_to(
             spl_token_account.key,
-            &mint_key,
+            &pool_mint_key,
             target_pool_token_account.key, 
             &pool_key,
             &[],
@@ -531,6 +595,15 @@ impl Processor {
                     accounts,
                     pool_seed,
                     max_number_of_assets)
+            },
+            PoolInstruction::InitOrderTracker {
+                pool_seed,
+            } => {
+                msg!("Instruction: Init Order Tracker");
+                Self::process_init_order_tracker(program_id,
+                    accounts,
+                    pool_seed,
+                )
             },
             PoolInstruction::Create {
                 pool_seed,
