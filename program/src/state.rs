@@ -2,7 +2,10 @@ use std::{cmp::Ordering, convert::TryInto};
 
 use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
 
-#[derive(Debug, PartialEq, Clone)]
+pub const FIDA_MINT_KEY: String = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp".to_string();
+pub const FIDA_MIN_AMOUNT: u64 = 1;
+
+#[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
     pub amount_in_token: u64

@@ -21,21 +21,33 @@ pub enum PoolInstruction {
     Init {
         // The seed used to derive the pool account
         pool_seed: [u8; 32],
-        max_number_of_markets: u32
+        // The maximum number of token asset types the pool will ever be able to hold
+        max_number_of_assets: u32
     },
-    /// Creates a new pool from an empty (uninitialized) one. The two operations need to
-    /// be seperated as account data allocation needs to be first processed
-    /// by the network before being overwritten.
+    /// Creates a new pool from an empty (uninitialized) one by performing the first deposit
+    /// of any number of different tokens and setting the pubkey of the signal provider.
+    /// The first deposit will fix the initial value of 1 pooltoken (credited to the target)
+    /// with respect to the deposited tokens.
+    /// The init and create operations need to be separated as account data
+    /// allocation needs to be first processed by the network before being overwritten.
     ///
     /// Accounts expected by this instruction:
     ///
     ///   * Single owner
+    ///   0. `[]` The spl-token program account
+    ///   1. `[]` The pooltoken mint account
+    ///   1. `[]` The target account that receives the pooltokens
     ///   0. `[]` The pool account
+    ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
+    ///      corresponding PoolAssets in the pool account data.
+    ///   M+3. `[signer]` The source owner account
+    ///   M+4..2M+4. `[]` The M token source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
-        signal_provider_key: Pubkey
+        signal_provider_key: Pubkey,
+        deposit_amounts: Vec<u64>
     },
-    /// Buy into the pool. The source deposits tokens into the pool and receives
+    /// Buy into the pool. The source deposits tokens into the pool and the target receives
     /// a corresponding amount of pool-token in exchange. The program will try to 
     /// maximize the deposit sum with regards to the amounts given by the source and 
     /// the ratio of tokens present in the pool at that moment. Tokens can only be deposited
@@ -45,14 +57,16 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The spl-token program account
+    ///   1. `[]` The pooltoken mint account
+    ///   1. `[]` The target account that receives the pooltokens
     ///   1. `[]` The pool account
     ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
-    ///      corresponding PoolAssets in the pool account data 
+    ///      corresponding PoolAssets in the pool account data.
     ///   M+3. `[signer]` The source owner account
     ///   M+4..2M+4. `[]` The M token source token accounts in the same order as above
     Deposit {
         pool_seed: [u8; 32],
-        // The amount of pool token the source wishes to buy 
+        // The amount of pool token the source wishes to buy
         pool_token_amount: u64
     },
     /// As a signal provider, create a new serum order for the pool.
@@ -79,14 +93,14 @@ impl PoolInstruction {
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
                     .unwrap();
-                let max_number_of_markets: u32 = rest
+                let max_number_of_assets: u32 = rest
                     .get(32..36)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u32::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
                 Self::Init {
                     pool_seed,
-                    max_number_of_markets
+                    max_number_of_assets
                 }
             }
             1 => {
@@ -99,9 +113,19 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
+
+                let k = 32;
+                let deposit_amounts = vec![];
+                while rest.len() != 0 {
+                    let amount: u64 = u64::from_le_bytes(
+                        rest.get(k..(k + 8)).unwrap().try_into().unwrap()
+                    );
+                    deposit_amounts.push(amount);
+                }
                 Self::Create {
                     pool_seed,
-                    signal_provider_key
+                    signal_provider_key,
+                    deposit_amounts
                 }
             }
             2 => {
@@ -182,19 +206,23 @@ impl PoolInstruction {
         match self {
             Self::Init {
                 pool_seed,
-                max_number_of_markets
+                max_number_of_assets
             } => {
                 buf.push(0);
                 buf.extend_from_slice(pool_seed);
-                buf.extend_from_slice(&max_number_of_markets.to_le_bytes());
+                buf.extend_from_slice(&max_number_of_assets.to_le_bytes());
             }
             Self::Create {
                 pool_seed,
-                signal_provider_key
+                signal_provider_key,
+                deposit_amounts
             } => {
                 buf.push(1);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
+                for amount in deposit_amounts.iter() {
+                    buf.extend_from_slice(&amount.to_le_bytes());
+                }
             }
             Self::Deposit {
                 pool_seed,
@@ -232,6 +260,10 @@ impl PoolInstruction {
                     SelfTradeBehavior::CancelProvide => {1}
                 }.to_le_bytes());
             }
+            PoolInstruction::Init { pool_seed, max_number_of_assets } => {}
+            PoolInstruction::Create { pool_seed, signal_provider_key, deposit_amounts } => {}
+            PoolInstruction::Deposit { pool_seed, pool_token_amount } => {}
+            PoolInstruction::CreateOrder { pool_seed, side, limit_price, max_qty, order_type, client_id, self_trade_behavior } => {}
         };
         buf
     }
@@ -245,11 +277,11 @@ pub fn init(
     payer_key: &Pubkey,
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
-    max_number_of_markets: u32
+    max_number_of_assets: u32
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Init {
         pool_seed,
-        max_number_of_markets
+        max_number_of_assets
     }
     .pack();
     let accounts = vec![
@@ -270,11 +302,13 @@ pub fn create(
     bonfidabot_program_id: &Pubkey,
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
-    signal_provider_key: &Pubkey
+    signal_provider_key: &Pubkey,
+    deposit_amounts: Vec<u64>
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
-        signal_provider_key: *signal_provider_key
+        signal_provider_key: *signal_provider_key,
+        deposit_amounts
     }
     .pack();
     let accounts = vec![
@@ -329,7 +363,7 @@ mod test {
     fn test_instruction_packing() {
         let original_init = PoolInstruction::Init {
             pool_seed: [50u8; 32],
-            max_number_of_markets: 43,
+            max_number_of_assets: 43,
         };
         assert_eq!(
             original_init,
@@ -339,6 +373,7 @@ mod test {
         let original_create = PoolInstruction::Create {
             pool_seed: [50u8; 32],
             signal_provider_key: Pubkey::new_unique(),
+            deposit_amounts: vec![23 as u64, 43 as u64]
         };
         let packed_create = original_create.pack();
         let unpacked_create = PoolInstruction::unpack(&packed_create).unwrap();

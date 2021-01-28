@@ -2,9 +2,9 @@ use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64}};
 
 use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
-use spl_token::{instruction::{initialize_mint, mint_to, transfer}, state::Account, state::Mint};
-use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets}};
-
+use spl_token::{instruction::{initialize_mint, mint_to, transfer, initialize_account}, state::Account, state::Mint};
+use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, FIDA_MIN_AMOUNT, FIDA_MINT_KEY}};
+use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 
 pub struct Processor {}
 
@@ -13,7 +13,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
-        max_number_of_markets: u32
+        max_number_of_assets: u32
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
 
@@ -26,11 +26,6 @@ impl Processor {
 
         let rent = Rent::from_account_info(rent_sysvar_account)?;
 
-        if spl_token_program_account.key != &spl_token::id(){
-            msg!("Invalid spl token program account");
-            return Err(ProgramError::InvalidArgument);
-        }
-
         // Find the non reversible public key for the pool account via the seed
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id)?;
         if pool_key != *pool_account.key {
@@ -38,14 +33,14 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        // Find the non reversible public key for the pool account via the seed
+        // Find the non reversible public key for the pool mint account via the seed
         let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id)?;
         if mint_key != *mint_account.key {
             msg!("Provided mint account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
 
-        let state_size = PoolHeader::LEN + max_number_of_markets as usize * instruction::MARKET_DATA_SIZE;
+        let state_size = PoolHeader::LEN + max_number_of_assets as usize * instruction::MARKET_DATA_SIZE;
 
         let init_pool_account = create_account(
             &payer_account.key,
@@ -57,7 +52,7 @@ impl Processor {
 
         let init_mint_account = create_account(
             &payer_account.key,
-            &pool_key,
+            &mint_key,
             rent.minimum_balance(Mint::LEN),
             Mint::LEN as u64,
             &spl_token_program_account.key,
@@ -65,7 +60,7 @@ impl Processor {
 
         let init_mint = initialize_mint(
             &spl_token_program_account.key,
-            &pool_key,
+            &mint_key,
             &pool_key,
             None,
             6,
@@ -102,43 +97,131 @@ impl Processor {
         Ok(())
     }
 
-    pub fn process_create(        
+    pub fn process_create(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
-        signal_provider_key: &Pubkey
+        signal_provider_key: &Pubkey,
+        deposit_amounts: Vec<u64>
     ) -> ProgramResult {
+        let number_of_assets = deposit_amounts.len();
         let accounts_iter = &mut accounts.iter();
 
-        let pool_account = next_account_info(accounts_iter)?;
+        let spl_token_account = next_account_info(accounts_iter)?;
+        let mint_account = next_account_info(accounts_iter)?;
+        let target_pool_token_account = next_account_info(accounts_iter)?;
 
+        let pool_account = next_account_info(accounts_iter)?;
+        let mut pool_assets_accounts: Vec<&AccountInfo> = vec![];
+        for _ in 0..number_of_assets {
+            pool_assets_accounts.push(next_account_info(accounts_iter)?)
+        }
+        let source_owner_account = next_account_info(accounts_iter)?;
+        let mut source_assets_accounts: Vec<&AccountInfo> = vec![];
+        for _ in 0..number_of_assets {
+            source_assets_accounts.push(next_account_info(accounts_iter)?)
+        }
+        
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
+        let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        
         if pool_key != *pool_account.key {
             msg!("Provided pool account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
-        
-        // Verifying that no pool was already created with this seed
-        let is_initialized =
-            pool_account.try_borrow_data()?[PoolHeader::LEN - 1] == 1;
-
-        if is_initialized {
-            msg!("Cannot overwrite an existing vesting contract.");
+        if mint_key != *mint_account.key {
+            msg!("Provided mint account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
-
+        // Verifying that no pool was already created with this seed
+        let pool_status = PoolHeader::unpack_from_slice(
+            &pool_account.try_borrow_data()?[..PoolHeader::LEN]
+        ).unwrap().status;
+        if pool_status != PoolStatus::Uninitialized {
+            msg!("Cannot overwrite an existing pool.");
+            return Err(ProgramError::InvalidArgument);
+        }
         if *pool_account.owner != *program_id {
             msg!("Program should own pool account");
             return Err(ProgramError::InvalidArgument);
         }
+        if !source_owner_account.is_signer {
+            msg!("Source token account owner should be a signer.");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        let mut enough_fida = false;
+        let pool_assets: Vec<PoolAsset> = vec![];
+        for i in 0..number_of_assets {
+            let mint_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
 
+            // Verify that the first deposit credits more than the min amount of FIDA tokens
+            enough_fida =  (pool_assets_accounts[i as usize].key.to_string() == FIDA_MINT_KEY)
+                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT);
+
+            let transfer_instruction = transfer(
+                spl_token_account.key,
+                source_assets_accounts[i as usize].key,
+                &pool_assets_accounts[i as usize].key,
+                source_owner_account.key,
+                &[],
+                deposit_amounts[i as usize],
+            )?;
+            invoke(
+                &transfer_instruction,
+                &[
+                    source_assets_accounts[i as usize].clone(),
+                    pool_assets_accounts[i].clone(),
+                    spl_token_account.clone(),
+                    source_owner_account.clone(),
+                ],
+            )?;
+            pool_assets.push(PoolAsset {
+                mint_address: mint_key,
+                amount_in_token: deposit_amounts[i as usize],
+            });
+        }
+
+        if !enough_fida {
+            msg!("Pool should always hold at least {:?} FIDA tokens", FIDA_MIN_AMOUNT);
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Mint the first pooltoken to the target
+        let instruction = mint_to(
+            spl_token_account.key,
+            &mint_key,
+            target_pool_token_account.key, 
+            &pool_key,
+            &[],
+            1
+        )?;
+
+        invoke_signed(
+            &instruction, 
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                target_pool_token_account.clone(),
+                pool_account.clone()
+            ], 
+            &[&[&pool_seed]],
+        )?;
+
+        // Write state header into data
         let state_header = PoolHeader {
             signal_provider: *signal_provider_key,
             status: PoolStatus::Unlocked
         };
-
         let mut data = pool_account.data.borrow_mut();
         state_header.pack_into_slice(&mut data);
+        
+        // Write the assets into the account data
+        let mut offset = PoolHeader::LEN;
+        for asset in pool_assets.iter() {
+            asset.pack_into_slice(&mut data[offset..]);
+            offset += PoolAsset::LEN;
+        }
 
         Ok(())
     }
@@ -153,9 +236,9 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
-        let pool_account = next_account_info(accounts_iter)?;
         let mint_account = next_account_info(accounts_iter)?;
         let target_pool_token_account = next_account_info(accounts_iter)?;
+        let pool_account = next_account_info(accounts_iter)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
@@ -178,12 +261,10 @@ impl Processor {
             msg!("Provided pool account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
-
         if mint_key != *mint_account.key {
             msg!("Provided mint account is invalid");
             return Err(ProgramError::InvalidArgument);
         }
-
         if !source_owner_account.is_signer {
             msg!("Source token account owner should be a signer.");
             return Err(ProgramError::InvalidArgument);
@@ -197,7 +278,6 @@ impl Processor {
                 no buy-ins are possible");
             return Err(ProgramError::InvalidArgument);
         }
-
 
 
         // Compute buy-in amount. The effective buy-in amount can be less than the
@@ -239,12 +319,13 @@ impl Processor {
             )?;
         }
 
+        // Mint the effective amount of pooltokens to the target
         let instruction = mint_to(
-            spl_token_account.key, 
-            &mint_key, 
+            spl_token_account.key,
+            &mint_key,
             target_pool_token_account.key, 
-            &pool_key, 
-            &[], 
+            &pool_key,
+            &[],
             pool_token_effective_amount
         )?;
 
@@ -368,24 +449,26 @@ impl Processor {
         match instruction {
             PoolInstruction::Init {
                 pool_seed,
-                max_number_of_markets
+                max_number_of_assets
             } => {
                 msg!("Instruction: Init");
                 Self::process_init(program_id,
                     accounts,
                     pool_seed,
-                    max_number_of_markets)
+                    max_number_of_assets)
             },
             PoolInstruction::Create {
                 pool_seed,
-                signal_provider_key
+                signal_provider_key,
+                deposit_amounts
             } => {
-                msg!("Instruction: Create Schedule");
+                msg!("Instruction: Create Pool");
                 Self::process_create(
                     program_id,
                     accounts,
                     pool_seed,
-                    &signal_provider_key
+                    &signal_provider_key,
+                    deposit_amounts
                 )
             },
             PoolInstruction::Deposit {
@@ -409,7 +492,7 @@ impl Processor {
                 client_id,
                 self_trade_behavior
             } => {
-                msg!("Instruction: Deposit into Pool");
+                msg!("Instruction: Create Order for Pool");
                 Self::process_create_order(
                     program_id, 
                     accounts,
