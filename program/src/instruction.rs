@@ -1,7 +1,4 @@
-use crate::{
-    state::PoolHeader,
-    error::BonfidaBotError
-};
+use crate::{error::BonfidaBotError, state::{PoolHeader, unpack_assets}};
 use std::{convert::TryInto, mem::size_of, num::{NonZeroU16, NonZeroU64}};
 use serum_dex::{instruction::{NewOrderInstructionV2, SelfTradeBehavior}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction}, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{Sysvar, clock::Clock, rent}};
@@ -113,14 +110,16 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
-
-                let k = 32;
+                let mut k = 64;
                 let mut deposit_amounts = vec![];
-                while rest.len() != 0 {
-                    let amount: u64 = u64::from_le_bytes(
-                        rest.get(k..(k + 8)).unwrap().try_into().unwrap()
-                    );
-                    deposit_amounts.push(amount);
+                while k != 0 {
+                    match rest.get(k..(k + 8)) {
+                        None => k = 0,
+                        Some(bytes) => {
+                            deposit_amounts.push(u64::from_le_bytes(bytes.try_into().unwrap()));
+                            k = k + 8;
+                        }
+                    }
                 }
                 Self::Create {
                     pool_seed,
