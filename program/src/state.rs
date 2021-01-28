@@ -17,6 +17,7 @@ pub enum PoolStatus {
     Locked,
     /// Maximum number of pending orders is 64, minimum is 1.
     PendingOrder(NonZeroU8),
+    LockedPendingOrder(NonZeroU8)
 }
 
 #[derive(Debug, PartialEq)]
@@ -25,10 +26,10 @@ pub struct PoolHeader {
     pub status: PoolStatus,
 }
 
-const STATUS_PENDING_ORDER_FLAG:u8 = 3 << 6;
+const STATUS_PENDING_ORDER_FLAG:u8 = 1 << 6;
 const STATUS_PENDING_ORDER_MASK:u8 = 0x3f;
 const STATUS_LOCKED_FLAG:u8 = 2 << 6;
-const STATUS_UNLOCKED_FLAG:u8 = 1 << 6;
+const STATUS_UNLOCKED_FLAG:u8 = STATUS_PENDING_ORDER_MASK;
 
 impl Sealed for PoolHeader {}
 
@@ -47,19 +48,28 @@ impl Pack for PoolHeader {
             PoolStatus::PendingOrder(n) => {
                 STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
             }
+            PoolStatus::LockedPendingOrder(n) => {
+                STATUS_LOCKED_FLAG | STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
+            }
         }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let signal_provider = Pubkey::new(&src[..32]);
-        let status = match src[32] >> 6{
-            0 => {PoolStatus::Uninitialized},
-            1 => {PoolStatus::Unlocked},
+        let status = if src[32] == 0 {
+            PoolStatus::Uninitialized
+        } else {
+            match src[32] >> 6{
+            0 => {PoolStatus::Unlocked},
+            1 => {PoolStatus::PendingOrder(NonZeroU8::new(
+                (src[32] & STATUS_PENDING_ORDER_MASK) + 1).ok_or(ProgramError::InvalidArgument)?
+            )},
             2 => {PoolStatus::Locked},
-            3 => {PoolStatus::PendingOrder(NonZeroU8::new(
+            3 => {PoolStatus::LockedPendingOrder(NonZeroU8::new(
                 (src[32] & STATUS_PENDING_ORDER_MASK) + 1).ok_or(ProgramError::InvalidArgument)?
             )}
             _ => return Err(ProgramError::InvalidAccountData)
+        }
         };
         Ok(Self {
             signal_provider,
@@ -167,6 +177,67 @@ pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<
 }
 
 
+#[derive(Debug, PartialEq)]
+pub struct OrderState {
+    pub pool_tokens_in_flight: u64,
+    pub source_tokens_in_flight: u64,
+    pub target_tokens_in_flight: u64
+}
+
+impl Sealed for OrderState {}
+
+impl IsInitialized for OrderState {
+    fn is_initialized(&self) -> bool {
+        self.pool_tokens_in_flight != 0
+    }
+}
+
+impl Pack for OrderState {
+    const LEN: usize = 24;
+
+    fn pack_into_slice(&self, dst: &mut [u8]) {
+        let pool_tokens_in_flight_bytes = self.pool_tokens_in_flight.to_le_bytes();
+        let source_tokens_in_flight_bytes = self.source_tokens_in_flight.to_le_bytes();
+        let target_tokens_in_flight_bytes = self.target_tokens_in_flight.to_le_bytes();
+        
+        for i in 0..8 {
+            dst[i] = pool_tokens_in_flight_bytes[i]
+        }
+
+        for i in 0..8 {
+            dst[i + 8] = source_tokens_in_flight_bytes[i]
+        }
+
+        for i in 0..8 {
+            dst[i + 16] = target_tokens_in_flight_bytes[i]
+        }
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        let pool_tokens_in_flight = src
+            .get(0..8)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        let source_tokens_in_flight = src
+            .get(8..16)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        let target_tokens_in_flight = src
+            .get(16..24)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
+            .ok_or(ProgramError::InvalidAccountData)?;
+        
+            Ok(Self{
+                pool_tokens_in_flight,
+                source_tokens_in_flight,
+                target_tokens_in_flight
+            })
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU8;
@@ -203,6 +274,46 @@ mod tests {
         let unpacked_pool_assets = unpack_assets(&state_array[PoolHeader::LEN..]).unwrap();
         assert_eq!(unpacked_pool_assets[0], pool_asset);
         assert_eq!(unpacked_pool_assets[1], pool_asset_2);
+    }
+
+    #[test]
+    fn test_header_packing(){
+        let mut header_state = PoolHeader {
+            signal_provider: Pubkey::new_unique(),
+            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap())
+        };
+        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+
+        header_state = PoolHeader {
+            signal_provider: Pubkey::new_unique(),
+            status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap())
+        };
+        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+
+        header_state = PoolHeader {
+            signal_provider: Pubkey::new_unique(),
+            status: PoolStatus::Locked,
+        };
+        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+
+        header_state = PoolHeader {
+            signal_provider: Pubkey::new_unique(),
+            status: PoolStatus::Unlocked,
+        };
+        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+
+        header_state = PoolHeader {
+            signal_provider: Pubkey::new_unique(),
+            status: PoolStatus::Uninitialized,
+        };
+        assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
+    }
+
+    fn get_packed<T: Pack>(obj: &T) -> Vec<u8>{
+        let mut output_vec= vec![0u8].repeat(T::LEN);
+        obj.pack_into_slice(&mut output_vec);
+        output_vec
+
     }
 
     #[test]

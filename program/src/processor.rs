@@ -3,6 +3,7 @@ use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64, N
 use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
 use spl_token::{instruction::{initialize_mint, mint_to, transfer, initialize_account}, state::Account, state::Mint};
+use spl_associated_token_account::get_associated_token_address;
 use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PoolAsset, PoolHeader, PoolStatus, pack_asset, unpack_assets, unpack_unchecked_asset}};
 
 pub struct Processor {}
@@ -385,14 +386,32 @@ impl Processor {
         }
 
         let source_account = Account::unpack(&pool_token_account.data.borrow())?;
+        let source_token_account_key = get_associated_token_address(&pool_key, &source_account.mint);
+
+        if pool_token_account.key != &source_token_account_key {
+            msg!("Source token account should be associated to the pool account");
+            return Err(ProgramError::InvalidArgument)
+        }
 
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
         match pool_header.status {
             PoolStatus::Uninitialized => { return Err(ProgramError::UninitializedAccount) }
             PoolStatus::Unlocked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
-            PoolStatus::Locked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
-            PoolStatus::PendingOrder(_) => {}
+            PoolStatus::Locked => { pool_header.status = PoolStatus::LockedPendingOrder(NonZeroU8::new(1).unwrap()) }
+            PoolStatus::PendingOrder(n) | PoolStatus::LockedPendingOrder(n) => {
+                if n.get() == 64 {
+                    msg!("Maximum number of pending orders has been reached. Settle or cancel a pending order.");
+                    return Err(BonfidaBotError::Overflow.into())
+                }
+                let pending_orders = NonZeroU8::new(n.get() + 1).unwrap();
+                pool_header.status = match pool_header.status {
+                    PoolStatus::PendingOrder(_) => {PoolStatus::PendingOrder(pending_orders)}
+                    PoolStatus::LockedPendingOrder(_) => {PoolStatus::LockedPendingOrder(pending_orders)}
+                    _ => {unreachable!()}
+                }
+            }
         }
+
         let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
         let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
 
