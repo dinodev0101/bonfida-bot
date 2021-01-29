@@ -181,7 +181,7 @@ pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<
 pub struct OrderState {
     pub pool_tokens_in_flight: u64,
     pub source_tokens_in_flight: u64,
-    pub target_tokens_in_flight: u64
+    pub expected_target_tokens: u64
 }
 
 impl Sealed for OrderState {}
@@ -198,7 +198,7 @@ impl Pack for OrderState {
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let pool_tokens_in_flight_bytes = self.pool_tokens_in_flight.to_le_bytes();
         let source_tokens_in_flight_bytes = self.source_tokens_in_flight.to_le_bytes();
-        let target_tokens_in_flight_bytes = self.target_tokens_in_flight.to_le_bytes();
+        let expected_target_tokens_in_flight_bytes = self.expected_target_tokens.to_le_bytes();
         
         for i in 0..8 {
             dst[i] = pool_tokens_in_flight_bytes[i]
@@ -209,7 +209,7 @@ impl Pack for OrderState {
         }
 
         for i in 0..8 {
-            dst[i + 16] = target_tokens_in_flight_bytes[i]
+            dst[i + 16] = expected_target_tokens_in_flight_bytes[i]
         }
     }
 
@@ -224,7 +224,7 @@ impl Pack for OrderState {
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
 
-        let target_tokens_in_flight = src
+        let expected_target_tokens = src
             .get(16..24)
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
@@ -232,7 +232,7 @@ impl Pack for OrderState {
             Ok(Self{
                 pool_tokens_in_flight,
                 source_tokens_in_flight,
-                target_tokens_in_flight
+                expected_target_tokens
             })
     }
 }

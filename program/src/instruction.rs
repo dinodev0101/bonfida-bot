@@ -89,6 +89,23 @@ pub enum PoolInstruction {
     },
     /// As a signal provider, create a new serum order for the pool.
     /// Amounts are translated into proportions of the pool between 0 and 2**16 - 1
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   * Single owner
+    ///    0. `[signer]` The signal provider account
+    ///    1. `[writable]` The market account
+    ///    2. `[writable]` The payer pool token account
+    ///    3. `[writable]` The relevant OpenOrders account
+    ///    4. `[writable]` The relevant order state account
+    ///    5. `[writable]` The Serum request queue
+    ///    6. `[writable]` The pool account
+    ///    7. `[writable]` The coin vault
+    ///    8. `[writable]` The price currency vault
+    ///    9. `[]` The spl_token_program
+    ///   10. `[]` The rent sysvar account
+    ///   11. `[]` The dex program account
+    ///   12. `[writable]` (optional) The (M)SRM referrer account
     CreateOrder{
         pool_seed: [u8; 32],
         side: Side,

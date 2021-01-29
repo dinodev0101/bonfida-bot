@@ -1,4 +1,4 @@
-use std::{cmp::{max, min}, collections::HashMap, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
+use std::{cmp::{max, min}, collections::HashMap, convert::TryInto, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
 
 use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order}, matching::{OrderType, Side}};
 use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
@@ -422,9 +422,11 @@ impl Processor {
     ) -> ProgramResult {
         let account_iter = &mut accounts.iter();
 
+        let signal_provider_account = next_account_info(account_iter)?;
         let market = next_account_info(account_iter)?;
         let pool_token_account = next_account_info(account_iter)?;
         let openorders_account = next_account_info(account_iter)?;
+        let order_state_account = next_account_info(account_iter)?;
         let request_queue = next_account_info(account_iter)?;
         let pool_account = next_account_info(account_iter)?;
         let coin_vault = next_account_info(account_iter)?;
@@ -437,12 +439,19 @@ impl Processor {
 
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
         if pool_account.key != &pool_key {
-            msg!("Provided pool account doesn't match the provided pool seed")
+            msg!("Provided pool account does not match the provided pool seed");
+            return Err(ProgramError::InvalidArgument)
+        }
+        let order_state_key = Pubkey::create_program_address(&[&pool_seed, &openorders_account.key.to_bytes()], program_id)?;
+        if &order_state_key != order_state_account.key {
+            msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
+            return Err(ProgramError::InvalidArgument)
         }
 
-
-        let coin_mint = Pubkey::new(&market.data.borrow()[48..80]);
-        let pc_mint = Pubkey::new(&market.data.borrow()[80..112]);
+        let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
+        let coin_lot_size = u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
+        let pc_mint = Pubkey::new(&market.data.borrow()[85..117]);
+        let pc_lot_size = u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
         let open_orders_account_owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
 
         if &open_orders_account_owner != pool_account.key {
@@ -458,6 +467,14 @@ impl Processor {
         }
 
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        if !signal_provider_account.is_signer {
+            msg!("The signal provider's signature is required.");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        if signal_provider_account.key != &pool_header.signal_provider{
+            msg!("A wrong signal provider account was provided.");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
         match pool_header.status {
             PoolStatus::Uninitialized => { return Err(ProgramError::UninitializedAccount) }
             PoolStatus::Unlocked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
@@ -474,7 +491,7 @@ impl Processor {
                     _ => {unreachable!()}
                 }
             }
-        }
+        };
 
         let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
         let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
@@ -523,6 +540,19 @@ impl Processor {
         let amount_to_trade_in_token = (cast_value.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
         let amount_to_trade = (cast_total.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
 
+        let lots_to_trade = amount_to_trade_in_token.checked_div(match side {
+            Side::Bid => {pc_lot_size}
+            Side::Ask => {coin_lot_size}
+        }).ok_or(BonfidaBotError::Overflow)?;
+
+        let expected_target_tokens = match side {
+            Side::Bid => {amount_to_trade.checked_mul(limit_price.get()).ok_or_else(|| {
+                msg!("Limit price caused an overflow. Reduce the size of the order.");
+                BonfidaBotError::Overflow
+            })?}
+            Side::Ask => {amount_to_trade.checked_div(limit_price.get()).ok_or(ProgramError::InvalidArgument)?}
+        };
+
         source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_in_token;
         if source_asset.amount_in_token == 0 {
             // Erasing asset
@@ -530,6 +560,14 @@ impl Processor {
         }
 
         pack_asset(&mut pool_account.data.borrow_mut(), &source_asset, source_index)?;
+
+        let order_state = OrderState {
+            pool_tokens_in_flight: amount_to_trade_in_token,
+            source_tokens_in_flight: amount_to_trade,
+            expected_target_tokens,
+        };
+
+        order_state.pack_into_slice(&mut order_state_account.data.borrow_mut());
 
 
         let new_order_instruction = new_order(
@@ -546,7 +584,7 @@ impl Processor {
             dex_program_id.key,
             side,
             limit_price,
-            NonZeroU64::new(amount_to_trade).unwrap(),
+            NonZeroU64::new(lots_to_trade).ok_or(BonfidaBotError::Overflow)?,
             order_type,
             client_id,
             self_trade_behavior
