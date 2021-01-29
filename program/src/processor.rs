@@ -42,7 +42,7 @@ impl Processor {
 
         let state_size = PoolHeader::LEN + max_number_of_assets as usize * instruction::MARKET_DATA_SIZE;
 
-        let init_pool_account = create_account(
+        let create_pool_account = create_account(
             &payer_account.key,
             &pool_key,
             rent.minimum_balance(state_size),
@@ -50,7 +50,7 @@ impl Processor {
             &program_id,
         );
 
-        let init_mint_account = create_account(
+        let create_mint_account = create_account(
             &payer_account.key,
             &mint_key,
             rent.minimum_balance(Mint::LEN),
@@ -67,7 +67,7 @@ impl Processor {
         )?;
 
         invoke_signed(
-            &init_pool_account,
+            &create_pool_account,
             &[
                 system_program_account.clone(),
                 payer_account.clone(),
@@ -77,7 +77,7 @@ impl Processor {
         )?;
 
         invoke_signed(
-            &init_mint_account,
+            &create_mint_account,
             &[
                 system_program_account.clone(),
                 payer_account.clone(),

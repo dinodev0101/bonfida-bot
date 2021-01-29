@@ -14,7 +14,11 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The system program account
-    ///   1. `[signer]` The fee payer account
+    ///   1. `[]` The sysvar rent program account
+    ///   2. `[]` The spl token program account
+    ///   3. `[]` The pool account
+    ///   4. `[]` The pooltoken mint account
+    ///   5. `[signer]` The fee payer account
     Init {
         // The seed used to derive the pool account
         pool_seed: [u8; 32],
@@ -30,8 +34,10 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The system program account
-    ///   1. `[signer]` The fee payer account
-    ///   1. `[signer]` The fee payer account
+    ///   1. `[]` The sysvar rent program account
+    ///   2. `[]` The pool account
+    ///   3. `[]` The open orders account
+    ///   4. `[signer]` The fee payer account
     InitOrderTracker {
         // The seed of the pool account
         pool_seed: [u8; 32],
@@ -299,9 +305,11 @@ impl PoolInstruction {
 
 // Creates a `Init` instruction
 pub fn init(
+    spl_token_program_id: &Pubkey,
     system_program_id: &Pubkey,
     rent_program_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
+    mint_key: &Pubkey,
     payer_key: &Pubkey,
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
@@ -315,7 +323,9 @@ pub fn init(
     let accounts = vec![
         AccountMeta::new_readonly(*system_program_id, false),
         AccountMeta::new_readonly(*rent_program_id, false),
+        AccountMeta::new(*spl_token_program_id, false),
         AccountMeta::new(*pool_key, false),
+        AccountMeta::new(*mint_key, false),
         AccountMeta::new(*payer_key, true)
     ];
     Ok(Instruction {
@@ -355,9 +365,15 @@ pub fn init_order_tracker(
 
 // Creates a `CreatePool` instruction
 pub fn create(
+    spl_token_program_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
+    mint_key: &Pubkey,
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
+    pool_asset_keys: Vec<Pubkey>,
+    target_pool_token_key: &Pubkey,
+    source_owner_key: &Pubkey,
+    source_asset_keys: Vec<Pubkey>,
     signal_provider_key: &Pubkey,
     deposit_amounts: Vec<u64>
 ) -> Result<Instruction, ProgramError> {
@@ -367,9 +383,20 @@ pub fn create(
         deposit_amounts
     }
     .pack();
-    let accounts = vec![
-        AccountMeta::new(*pool_key, false)
+    let mut accounts = vec![
+        AccountMeta::new(*spl_token_program_id, false),
+        AccountMeta::new(*mint_key, false),
+        AccountMeta::new(*target_pool_token_key, false),
+        AccountMeta::new(*pool_key, false),
     ];
+    for pool_asset_key in pool_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*pool_asset_key, false))
+    }
+    accounts.push(AccountMeta::new(*source_owner_key, true));
+    for source_asset_key in source_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*source_asset_key, false))
+    }
+
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
         accounts,
@@ -381,10 +408,12 @@ pub fn create(
 pub fn deposit(
     spl_token_program_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
+    mint_key: &Pubkey,
     pool_key: &Pubkey,
-    pool_assets: &Vec<Pubkey>,
+    pool_asset_keys: &Vec<Pubkey>,
+    target_pool_token_key: &Pubkey,
     source_owner: &Pubkey,
-    source_token_keys: Vec<Pubkey>,
+    source_asset_keys: Vec<Pubkey>,
     pool_seed: [u8; 32],
     pool_token_amount: u64
 ) -> Result<Instruction, ProgramError> {
@@ -395,15 +424,17 @@ pub fn deposit(
     .pack();
     let mut accounts = vec![
         AccountMeta::new(*spl_token_program_id, false),
+        AccountMeta::new(*mint_key, false),
+        AccountMeta::new(*target_pool_token_key, false),
         AccountMeta::new(*pool_key, false)
     ];
-    accounts.append(&mut pool_assets.iter().map(
-        |p| AccountMeta::new(*p, false)
-    ).collect());
+    for pool_asset_key in pool_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*pool_asset_key, false))
+    }
     accounts.push(AccountMeta::new(*source_owner, true));
-    accounts.append(&mut source_token_keys.iter().map(
-        |p| AccountMeta::new(*p, false)
-    ).collect());
+    for source_asset_key in source_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*source_asset_key, false))
+    }
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
         accounts,
