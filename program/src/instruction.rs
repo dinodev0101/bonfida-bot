@@ -370,10 +370,10 @@ pub fn create(
     mint_key: &Pubkey,
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
-    pool_asset_keys: Vec<Pubkey>,
+    pool_asset_keys: &Vec<Pubkey>,
     target_pool_token_key: &Pubkey,
     source_owner_key: &Pubkey,
-    source_asset_keys: Vec<Pubkey>,
+    source_asset_keys: &Vec<Pubkey>,
     signal_provider_key: &Pubkey,
     deposit_amounts: Vec<u64>
 ) -> Result<Instruction, ProgramError> {
@@ -413,7 +413,7 @@ pub fn deposit(
     pool_asset_keys: &Vec<Pubkey>,
     target_pool_token_key: &Pubkey,
     source_owner: &Pubkey,
-    source_asset_keys: Vec<Pubkey>,
+    source_asset_keys: &Vec<Pubkey>,
     pool_seed: [u8; 32],
     pool_token_amount: u64
 ) -> Result<Instruction, ProgramError> {

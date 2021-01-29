@@ -2,7 +2,7 @@
 use std::str::FromStr;
 use rand::Rng;
 use solana_program::{hash::Hash, msg, pubkey::Pubkey, rent::Rent, system_program, sysvar};
-use bonfida_bot::{entrypoint::process_instruction, instruction::{init, create}};
+use bonfida_bot::{entrypoint::process_instruction, instruction::{init, create, deposit}};
 use solana_program_test::{processor, ProgramTest};
 use solana_sdk::{account::Account, keyed_account, signature::Keypair, signature::Signer, system_instruction, transaction::Transaction};
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
@@ -74,32 +74,32 @@ async fn test_bonfida_bot() {
     // Setup pool and source token asset accounts
     let deposit_amounts = vec![0, 200, 238479, 2344, 667];
     let nb_assets = deposit_amounts.len();
-    let mut create_instructions = vec![];
+    let mut setup_instructions = vec![];
     let mut mint_asset_keys = vec![];
     let mut pool_asset_keys = vec![];
     let mut source_asset_keys = vec![];
     let asset_mint_authority = Keypair::new();
     for i in 0..nb_assets {
         // Init asset mint
-        let mint_key = Keypair::new();
+        let asset_mint_key = Keypair::new();
         banks_client.process_transaction(mint_init_transaction(
             &payer,
-            &mint_key,
+            &asset_mint_key,
             &asset_mint_authority,
             recent_blockhash
         )).await.unwrap();
-        mint_asset_keys.push(mint_key.pubkey());
+        mint_asset_keys.push(asset_mint_key.pubkey());
 
         //Pool assets
         let create_pool_asset_instruction = create_associated_token_account(
             &payer.pubkey(),
             &pool_key,
-            &mint_key.pubkey()
+            &asset_mint_key.pubkey()
         );
-        create_instructions.push(create_pool_asset_instruction);
+        setup_instructions.push(create_pool_asset_instruction);
         let pool_asset_key = get_associated_token_address(
             &pool_key,
-            &mint_key.pubkey()
+            &asset_mint_key.pubkey()
         );
         pool_asset_keys.push(pool_asset_key);
 
@@ -107,27 +107,37 @@ async fn test_bonfida_bot() {
         let create_source_asset_instruction = create_associated_token_account(
             &payer.pubkey(),
             &source_owner.pubkey(),
-            &mint_key.pubkey()
+            &asset_mint_key.pubkey()
         );
-        create_instructions.push(create_source_asset_instruction);
+        setup_instructions.push(create_source_asset_instruction);
         let source_asset_key = get_associated_token_address(
             &source_owner.pubkey(),
-            &mint_key.pubkey()
+            &asset_mint_key.pubkey()
         );
         source_asset_keys.push(source_asset_key);
-        create_instructions.push(mint_to(
+        setup_instructions.push(mint_to(
                 &spl_token::id(), 
-                &mint_key.pubkey(), 
+                &asset_mint_key.pubkey(), 
                 &source_asset_key, 
                 &asset_mint_authority.pubkey(), 
                 &[],
-                deposit_amounts[i]
+                u64::MAX
             ).unwrap()
         );
     }
-    //Process setup
+    // Init the pooltoken receiving target
+    setup_instructions.push(create_associated_token_account(
+        &payer.pubkey(),
+        &source_owner.pubkey(),
+        &mint_key
+    ));
+    let pooltoken_target_key = get_associated_token_address(
+        &payer.pubkey(),
+        &mint_key
+    );
+    //Process the setup
     let mut setup_transaction = Transaction::new_with_payer(
-        &create_instructions,
+        &setup_instructions,
         Some(&payer.pubkey()),
     );
     setup_transaction.partial_sign(
@@ -144,10 +154,10 @@ async fn test_bonfida_bot() {
         &mint_key,
         &pool_key,
         pool_seeds,
-        pool_asset_keys,
-&Pubkey::new_unique(),
+        &pool_asset_keys,
+&pooltoken_target_key,
 &source_owner.pubkey(),
-        source_asset_keys,
+        &source_asset_keys,
 &Pubkey::new_unique(),
         deposit_amounts
     ).unwrap()
@@ -161,7 +171,33 @@ async fn test_bonfida_bot() {
         recent_blockhash
     );
     banks_client.process_transaction(create_transaction).await.unwrap();
+
+
+    // Execute the Deposit transaction
+    let deposit_instruction = [deposit(
+        &spl_token::id(),
+        &program_id,
+        &mint_key,
+        &pool_key,
+        &pool_asset_keys,
+        &pooltoken_target_key,
+        &source_owner.pubkey(),
+        &source_asset_keys,
+        pool_seeds,
+        2,
+    ).unwrap()
+    ];
+    let mut deposit_transaction = Transaction::new_with_payer(
+        &deposit_instruction,
+        Some(&payer.pubkey()),
+    );
+    deposit_transaction.partial_sign(
+        &[&payer, &source_owner],
+        recent_blockhash
+    );
+    banks_client.process_transaction(deposit_transaction).await.unwrap();
 }
+
 
 fn mint_init_transaction(
     payer: &Keypair, 
