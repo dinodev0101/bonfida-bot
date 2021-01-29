@@ -19,14 +19,13 @@ async fn test_bonfida_bot() {
         pool_seeds = rand::thread_rng().gen::<[u8; 32]>();
         let (_, bump) = Pubkey::find_program_address(&[&pool_seeds[..31]], &program_id);
         pool_seeds[31] = bump;
-        let (_, mint_bump) = Pubkey::find_program_address(&[&pool_seeds[..31], &[1]], &program_id);
-        if mint_bump == 0 {
+        if Pubkey::create_program_address(&[&pool_seeds, &[1]], &program_id).is_ok() {
+            println!("seed found!");
             seed_found = true
         };
     }
-    let (pool_key, bump) = Pubkey::find_program_address(&[&pool_seeds[..31]], &program_id);
-    pool_seeds[31] = bump;
-    let (mint_key, _) = Pubkey::find_program_address(&[&pool_seeds[..31], &[1]], &program_id);
+    let pool_key = Pubkey::create_program_address(&[&pool_seeds], &program_id).unwrap();
+    let mint_key = Pubkey::create_program_address(&[&pool_seeds, &[1]], &program_id).unwrap();
 
     let mut program_test = ProgramTest::new(
         "bonfida_bot",
@@ -141,7 +140,7 @@ async fn test_bonfida_bot() {
         Some(&payer.pubkey()),
     );
     setup_transaction.partial_sign(
-        &[&payer],
+        &[&payer, &asset_mint_authority],
         recent_blockhash
     );
     banks_client.process_transaction(setup_transaction).await.unwrap();
@@ -197,7 +196,6 @@ async fn test_bonfida_bot() {
     );
     banks_client.process_transaction(deposit_transaction).await.unwrap();
 }
-
 
 fn mint_init_transaction(
     payer: &Keypair, 

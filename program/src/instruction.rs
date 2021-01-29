@@ -495,28 +495,28 @@ mod test {
         };
         let packed_create = original_create.pack();
         let unpacked_create = PoolInstruction::unpack(&packed_create).unwrap();
-        // assert_eq!(original_create, unpacked_create);
+        assert_eq!(original_create, unpacked_create);
 
-        // let original_deposit = PoolInstruction::Deposit {
-        //     pool_seed: [50u8; 32],
-        //     pool_token_amount: 24 as u64,
-        // };
-        // let packed_deposit = original_deposit.pack();
-        // let unpacked_deposit = PoolInstruction::unpack(&packed_deposit).unwrap();
-        // assert_eq!(original_deposit, unpacked_deposit);
+        let original_deposit = PoolInstruction::Deposit {
+            pool_seed: [50u8; 32],
+            pool_token_amount: 24 as u64,
+        };
+        let packed_deposit = original_deposit.pack();
+        let unpacked_deposit = PoolInstruction::unpack(&packed_deposit).unwrap();
+        assert_eq!(original_deposit, unpacked_deposit);
 
-        // let original_create_order = PoolInstruction::CreateOrder {
-        //     pool_seed: [50u8; 32],
-        //     side: Side::Ask,
-        //     limit_price: NonZeroU64::new(23).unwrap(),
-        //     max_qty: NonZeroU16::new(500).unwrap(),
-        //     order_type: OrderType::Limit,
-        //     client_id: 0xff44,
-        //     self_trade_behavior: SelfTradeBehavior::DecrementTake
-        // };
-        // let packed_create_order = original_create_order.pack();
-        // let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();
-        // assert_eq!(original_create_order, unpacked_create_order);
+        let original_create_order = PoolInstruction::CreateOrder {
+            pool_seed: [50u8; 32],
+            side: Side::Ask,
+            limit_price: NonZeroU64::new(23).unwrap(),
+            max_qty: NonZeroU16::new(500).unwrap(),
+            order_type: OrderType::Limit,
+            client_id: 0xff44,
+            self_trade_behavior: SelfTradeBehavior::DecrementTake
+        };
+        let packed_create_order = original_create_order.pack();
+        let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();
+        assert_eq!(original_create_order, unpacked_create_order);
 
     }
 }
