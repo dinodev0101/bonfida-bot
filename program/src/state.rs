@@ -1,5 +1,7 @@
 use std::{cmp::Ordering, convert::TryInto, num::NonZeroU8};
+use serum_dex::matching::Side;
 use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
+use arrayref::mut_array_refs;
 
 pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
@@ -175,61 +177,61 @@ pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<
 
 
 #[derive(Debug, PartialEq)]
-pub struct OrderState {
-    pub pool_tokens_in_flight: u64,
-    pub source_tokens_in_flight: u64,
-    pub expected_target_tokens: u64
+pub struct OrderTracker {
+    pub side: Side,
+    pub source_amount_per_token: u64,
+    pub pending_target_amount: u64
 }
 
-impl Sealed for OrderState {}
+impl Sealed for OrderTracker {}
 
-impl IsInitialized for OrderState {
+impl IsInitialized for OrderTracker {
     fn is_initialized(&self) -> bool {
-        self.pool_tokens_in_flight != 0
+        self.source_amount_per_token != 0
     }
 }
 
-impl Pack for OrderState {
+impl Pack for OrderTracker {
     const LEN: usize = 24;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
-        let pool_tokens_in_flight_bytes = self.pool_tokens_in_flight.to_le_bytes();
-        let source_tokens_in_flight_bytes = self.source_tokens_in_flight.to_le_bytes();
-        let expected_target_tokens_in_flight_bytes = self.expected_target_tokens.to_le_bytes();
-        
-        for i in 0..8 {
-            dst[i] = pool_tokens_in_flight_bytes[i]
-        }
+        dst[0] = match self.side {
+            Side::Bid => {0}
+            Side::Ask => {1}
+        };
 
-        for i in 0..8 {
-            dst[i + 8] = source_tokens_in_flight_bytes[i]
-        }
+        let source_amount_per_token_bytes = self.source_amount_per_token.to_le_bytes();
+        let pending_target_amount_bytes = self.pending_target_amount.to_le_bytes();
 
-        for i in 0..8 {
-            dst[i + 16] = expected_target_tokens_in_flight_bytes[i]
+        for i in 1..9 {
+            dst[i] = source_amount_per_token_bytes[i]
+        }
+        for i in 9..17 {
+            dst[i] = pending_target_amount_bytes[i]
         }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let pool_tokens_in_flight = src
-            .get(0..8)
+        let side = match src[0] {
+            0 => {Side::Bid}
+            1 => {Side::Ask}
+            _ => return Err(ProgramError::InvalidAccountData)
+        };
+
+        let source_amount_per_token = src
+            .get(1..9)
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
 
-        let source_tokens_in_flight = src
-            .get(8..16)
-            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
-            .ok_or(ProgramError::InvalidAccountData)?;
-
-        let expected_target_tokens = src
-            .get(16..24)
+        let pending_target_amount = src
+            .get(9..17)
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
         
             Ok(Self{
-                pool_tokens_in_flight,
-                source_tokens_in_flight,
-                expected_target_tokens
+                side,
+                source_amount_per_token,
+                pending_target_amount
             })
     }
 }
@@ -239,7 +241,8 @@ impl Pack for OrderState {
 mod tests {
     use std::num::NonZeroU8;
 
-    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets};
+    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, OrderTracker};
+    use serum_dex::matching::Side;
     use solana_program::{program_pack::{Pack, IsInitialized}, pubkey::Pubkey};
 
     #[test]
@@ -304,6 +307,22 @@ mod tests {
             status: PoolStatus::Uninitialized,
         };
         assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
+    }
+
+    #[test]
+    fn test_order_tracker_packing(){
+        let mut order_tracker = OrderTracker {
+            side: Side::Ask,
+            source_amount_per_token: 54,
+            pending_target_amount: 456
+        };
+        assert_eq!(order_tracker, OrderTracker::unpack(&get_packed(&order_tracker)).unwrap());
+
+        order_tracker.side = Side::Bid;
+        order_tracker.source_amount_per_token = u64::MAX - 42;
+        order_tracker.pending_target_amount = u64::MAX - 645;
+        assert_eq!(order_tracker, OrderTracker::unpack(&get_packed(&order_tracker)).unwrap());
+   
     }
 
     fn get_packed<T: Pack>(obj: &T) -> Vec<u8>{
