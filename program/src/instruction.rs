@@ -36,8 +36,9 @@ pub enum PoolInstruction {
     ///   0. `[]` The system program account
     ///   1. `[]` The sysvar rent program account
     ///   2. `[]` The pool account
-    ///   3. `[]` The open orders account
-    ///   4. `[signer]` The fee payer account
+    ///   3. `[]` The order tracking account
+    ///   4. `[]` The open orders account
+    ///   5. `[signer]` The fee payer account
     InitOrderTracker {
         // The seed of the pool account
         pool_seed: [u8; 32],
@@ -63,7 +64,9 @@ pub enum PoolInstruction {
     Create {
         pool_seed: [u8; 32],
         signal_provider_key: Pubkey,
-        deposit_amounts: Vec<u64>
+        // The sum of the following amounts
+        total_amount: u64,
+        deposit_amounts: Vec<u64>,
     },
     /// Buy into the pool. The source deposits tokens into the pool and the target receives
     /// a corresponding amount of pool-token in exchange. The program will try to 
@@ -156,7 +159,12 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
-                let mut k = 64;
+                let total_amount = rest
+                    .get(64..72)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let mut k = 72;
                 let mut deposit_amounts = vec![];
                 while k != 0 {
                     match rest.get(k..(k + 8)) {
@@ -170,7 +178,8 @@ impl PoolInstruction {
                 Self::Create {
                     pool_seed,
                     signal_provider_key,
-                    deposit_amounts
+                    total_amount,
+                    deposit_amounts,
                 }
             }
             3 => {
@@ -266,11 +275,13 @@ impl PoolInstruction {
             Self::Create {
                 pool_seed,
                 signal_provider_key,
+                total_amount,
                 deposit_amounts
             } => {
                 buf.push(2);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
+                buf.extend_from_slice(&total_amount.to_le_bytes());
                 for amount in deposit_amounts.iter() {
                     buf.extend_from_slice(&amount.to_le_bytes());
                 }
@@ -312,7 +323,7 @@ impl PoolInstruction {
                 }.to_le_bytes());
             }
             PoolInstruction::Init { pool_seed, max_number_of_assets } => {}
-            PoolInstruction::Create { pool_seed, signal_provider_key, deposit_amounts } => {}
+            PoolInstruction::Create { pool_seed, signal_provider_key, total_amount, deposit_amounts } => {}
             PoolInstruction::Deposit { pool_seed, pool_token_amount } => {}
             PoolInstruction::CreateOrder { pool_seed, side, limit_price, max_qty, order_type, client_id, self_trade_behavior } => {}
         };
@@ -357,6 +368,7 @@ pub fn init_order_tracker(
     system_program_id: &Pubkey,
     rent_program_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
+    order_tracker_key: &Pubkey,
     openorders_key: &Pubkey,
     payer_key: &Pubkey,
     pool_key: &Pubkey,
@@ -370,6 +382,7 @@ pub fn init_order_tracker(
         AccountMeta::new_readonly(*system_program_id, false),
         AccountMeta::new_readonly(*rent_program_id, false),
         AccountMeta::new(*pool_key, false),
+        AccountMeta::new_readonly(*order_tracker_key, false),
         AccountMeta::new_readonly(*openorders_key, false),
         AccountMeta::new(*payer_key, true)
     ];
@@ -392,12 +405,14 @@ pub fn create(
     source_owner_key: &Pubkey,
     source_asset_keys: &Vec<Pubkey>,
     signal_provider_key: &Pubkey,
-    deposit_amounts: Vec<u64>
+    total_amount: u64,
+    deposit_amounts: Vec<u64>,
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
         signal_provider_key: *signal_provider_key,
-        deposit_amounts
+        deposit_amounts,
+        total_amount
     }
     .pack();
     let mut accounts = vec![
@@ -491,6 +506,7 @@ mod test {
         let original_create = PoolInstruction::Create {
             pool_seed: [50u8; 32],
             signal_provider_key: Pubkey::new_unique(),
+            total_amount: 66 as u64,
             deposit_amounts: vec![23 as u64, 43 as u64]
         };
         let packed_create = original_create.pack();

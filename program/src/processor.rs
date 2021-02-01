@@ -107,6 +107,7 @@ impl Processor {
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_sysvar_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
+        let order_tracker_account = next_account_info(accounts_iter)?;
         let openorders_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
 
@@ -120,10 +121,11 @@ impl Processor {
         }
 
         // Find the non reversible public key for the pool mint account via the seed
-        let order_tracker_key = Pubkey::create_program_address(
-            &[&pool_seed, &openorders_account.key.to_bytes()],
-            &pool_key
-        )?;
+        let (order_tracker_key, _) = Pubkey::find_program_address(&[&pool_seed, &openorders_account.key.to_bytes()], program_id);
+        if &order_tracker_key != order_tracker_account.key {
+            msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
+            return Err(ProgramError::InvalidArgument)
+        }
 
         let init_pool_account = create_account(
             &payer_account.key,
@@ -138,7 +140,7 @@ impl Processor {
             &[
                 system_program_account.clone(),
                 payer_account.clone(),
-                pool_account.clone(),
+                order_tracker_account.clone(),
             ],
             &[&[&pool_seed]],
         )?;
@@ -151,7 +153,8 @@ impl Processor {
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
         signal_provider_key: &Pubkey,
-        deposit_amounts: Vec<u64>
+        deposit_amounts: Vec<u64>,
+        total_amount: u64
     ) -> ProgramResult {
         let number_of_assets = deposit_amounts.len();
         let accounts_iter = &mut accounts.iter();
@@ -233,7 +236,7 @@ impl Processor {
             )?;
             pool_assets.push(PoolAsset {
                 mint_address: mint_asset_key,
-                amount_in_token: deposit_amounts[i as usize],
+                amount_in_token: deposit_amounts[i as usize].checked_div(total_amount).unwrap(),//TODO
             });
         }
 
@@ -646,7 +649,8 @@ impl Processor {
             PoolInstruction::Create {
                 pool_seed,
                 signal_provider_key,
-                deposit_amounts
+                deposit_amounts,
+                total_amount
             } => {
                 msg!("Instruction: Create Pool");
                 Self::process_create(
@@ -654,7 +658,8 @@ impl Processor {
                     accounts,
                     pool_seed,
                     &signal_provider_key,
-                    deposit_amounts
+                    deposit_amounts,
+                    total_amount
                 )
             },
             PoolInstruction::Deposit {
