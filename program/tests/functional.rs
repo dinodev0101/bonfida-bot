@@ -1,12 +1,13 @@
 #![cfg(feature = "test-bpf")]
 use std::str::FromStr;
+use arrayref::{array_mut_ref, mut_array_refs};
 use rand::Rng;
-use solana_program::{hash::Hash, msg, pubkey::Pubkey, rent::Rent, system_program, sysvar};
-use bonfida_bot::{entrypoint::process_instruction, instruction::{init, create, deposit}};
+use solana_program::{hash::Hash, msg, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_program, sysvar};
+use bonfida_bot::{entrypoint::process_instruction, instruction::{init, create, deposit}, state::FIDA_MINT_KEY};
 use solana_program_test::{processor, ProgramTest};
 use solana_sdk::{account::Account, keyed_account, signature::Keypair, signature::Signer, system_instruction, transaction::Transaction};
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
-use spl_token::{self, instruction::{initialize_mint, initialize_account, mint_to}};
+use spl_token::{self, instruction::{initialize_mint, initialize_account, mint_to}, state::Mint};
 
 #[tokio::test]
 async fn test_bonfida_bot() {
@@ -33,6 +34,7 @@ async fn test_bonfida_bot() {
         processor!(process_instruction),
     );
 
+    // Set up Source Owner and Fida mint accounts
     let source_owner = Keypair::new(); 
     program_test.add_account(
         source_owner.pubkey(),
@@ -40,6 +42,25 @@ async fn test_bonfida_bot() {
             lamports: 5000000,
             ..Account::default()
         },
+    );
+    let asset_mint_authority = Keypair::new();
+    let mut data = [0; Mint::LEN];
+    Mint {
+        mint_authority: Some(asset_mint_authority.pubkey()).into(),
+        supply: u32::MAX.into(),
+        decimals: 6,
+        is_initialized: true,
+        freeze_authority: None.into(),
+    }.pack_into_slice(&mut data);
+    program_test.add_account(
+        Pubkey::from_str(FIDA_MINT_KEY).unwrap(),
+        Account {
+            lamports: u32::MAX.into(),
+            data: data.into(),
+            owner: spl_token::id(),
+            executable: false,
+            ..Account::default()
+        }
     );
 
     // Start and process transactions on the test network
@@ -71,34 +92,40 @@ async fn test_bonfida_bot() {
 
 
     // Setup pool and source token asset accounts
-    let deposit_amounts = vec![0, 200, 238479, 2344, 667];
+    let deposit_amounts = vec![1000001, 200, 238479, 2344, 667];
     let nb_assets = deposit_amounts.len();
     let mut setup_instructions = vec![];
     let mut mint_asset_keys = vec![];
     let mut pool_asset_keys = vec![];
     let mut source_asset_keys = vec![];
-    let asset_mint_authority = Keypair::new();
+
     for i in 0..nb_assets {
-        // Init asset mint
-        let asset_mint_key = Keypair::new();
-        banks_client.process_transaction(mint_init_transaction(
-            &payer,
-            &asset_mint_key,
-            &asset_mint_authority,
-            recent_blockhash
-        )).await.unwrap();
-        mint_asset_keys.push(asset_mint_key.pubkey());
+        // Init asset mint, first asset is FIDA
+        let asset_mint_key = match i {
+            0 => Pubkey::from_str(FIDA_MINT_KEY).unwrap(),
+            _ => {
+                let k = Keypair::new();
+                banks_client.process_transaction(mint_init_transaction(
+                    &payer,
+                    &k,
+                    &asset_mint_authority,
+                    recent_blockhash
+                )).await.unwrap();
+                mint_asset_keys.push(k.pubkey());
+                k.pubkey()
+            }
+        };
 
         //Pool assets
         let create_pool_asset_instruction = create_associated_token_account(
             &payer.pubkey(),
             &pool_key,
-            &asset_mint_key.pubkey()
+            &asset_mint_key
         );
         setup_instructions.push(create_pool_asset_instruction);
         let pool_asset_key = get_associated_token_address(
             &pool_key,
-            &asset_mint_key.pubkey()
+            &asset_mint_key
         );
         pool_asset_keys.push(pool_asset_key);
 
@@ -106,21 +133,21 @@ async fn test_bonfida_bot() {
         let create_source_asset_instruction = create_associated_token_account(
             &payer.pubkey(),
             &source_owner.pubkey(),
-            &asset_mint_key.pubkey()
+            &asset_mint_key
         );
         setup_instructions.push(create_source_asset_instruction);
         let source_asset_key = get_associated_token_address(
             &source_owner.pubkey(),
-            &asset_mint_key.pubkey()
+            &asset_mint_key
         );
         source_asset_keys.push(source_asset_key);
         setup_instructions.push(mint_to(
                 &spl_token::id(), 
-                &asset_mint_key.pubkey(), 
+                &asset_mint_key, 
                 &source_asset_key, 
                 &asset_mint_authority.pubkey(), 
                 &[],
-                u64::MAX
+                u32::MAX.into()
             ).unwrap()
         );
     }
@@ -131,7 +158,7 @@ async fn test_bonfida_bot() {
         &mint_key
     ));
     let pooltoken_target_key = get_associated_token_address(
-        &payer.pubkey(),
+        &source_owner.pubkey(),
         &mint_key
     );
     //Process the setup
@@ -209,7 +236,7 @@ fn mint_init_transaction(
             Rent::default().minimum_balance(82),
             82,
             &spl_token::id()
-    
+
         ),
         initialize_mint(
             &spl_token::id(), 

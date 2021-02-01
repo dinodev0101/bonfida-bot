@@ -1,9 +1,8 @@
 use std::{cmp::Ordering, convert::TryInto, num::NonZeroU8};
-
 use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
 
+pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
-pub const FIDA_MIN_AMOUNT: u64 = 1;
 
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
@@ -153,9 +152,7 @@ pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
     let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
     let mut offset = 0;
     for _ in 0..number_of_assets{
-        output.push(PoolAsset::unpack_from_slice(
-            &input[offset..offset + PoolAsset::LEN],
-        )?);
+        PoolAsset::unpack(&input[offset..offset + PoolAsset::LEN]).and_then(|asset| Ok(output.push(asset))).unwrap_or(());
         offset += PoolAsset::LEN;
     }
     Ok(output)

@@ -21,7 +21,7 @@ solana-program = "1.5.0"
 thiserror = "1.0.23"
 num-traits = "0.2"
 num-derive = "0.3"
-# arrayref = "0.3.6"
+arrayref = "0.3.6"
 spl-token = {version = "3.0.1", features = ["no-entrypoint"]}
 serum_dex = {git = "https://github.com/project-serum/serum-dex.git", features = ["no-entrypoint"]}
 spl-associated-token-account = {version = "1.0.2", features = ["no-entrypoint"]}

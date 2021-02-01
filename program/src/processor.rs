@@ -9,7 +9,7 @@ use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state:
 pub struct Processor {}
 
 impl Processor {
-    pub fn process_init(        
+    pub fn process_init(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
@@ -202,8 +202,8 @@ impl Processor {
         let mut enough_fida = false;
         let mut pool_assets: Vec<PoolAsset> = vec![];
         for i in 0..number_of_assets {
-            let mint_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
-            let pool_asset_key = get_associated_token_address(&pool_key, &mint_key);
+            let mint_asset_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            let pool_asset_key = get_associated_token_address(&pool_key, &mint_asset_key);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
                 msg!("Provided pool asset account is invalid");
@@ -211,8 +211,8 @@ impl Processor {
             }
 
             // Verify that the first deposit credits more than the min amount of FIDA tokens
-            enough_fida =  (pool_assets_accounts[i as usize].key.to_string() == FIDA_MINT_KEY)
-                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT);
+            enough_fida = ((&mint_asset_key.to_string()[..] == FIDA_MINT_KEY)
+                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT)) | enough_fida;
 
             let transfer_instruction = transfer(
                 spl_token_account.key,
@@ -232,7 +232,7 @@ impl Processor {
                 ],
             )?;
             pool_assets.push(PoolAsset {
-                mint_address: mint_key,
+                mint_address: mint_asset_key,
                 amount_in_token: deposit_amounts[i as usize],
             });
         }
