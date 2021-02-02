@@ -64,8 +64,6 @@ pub enum PoolInstruction {
     Create {
         pool_seed: [u8; 32],
         signal_provider_key: Pubkey,
-        // The sum of the following amounts
-        total_amount: u64,
         deposit_amounts: Vec<u64>,
     },
     /// Buy into the pool. The source deposits tokens into the pool and the target receives
@@ -159,12 +157,7 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
-                let total_amount = rest
-                    .get(64..72)
-                    .and_then(|slice| slice.try_into().ok())
-                    .map(u64::from_le_bytes)
-                    .ok_or(InvalidInstruction)?;
-                let mut k = 72;
+                let mut k = 64;
                 let mut deposit_amounts = vec![];
                 while k != 0 {
                     match rest.get(k..(k + 8)) {
@@ -178,7 +171,6 @@ impl PoolInstruction {
                 Self::Create {
                     pool_seed,
                     signal_provider_key,
-                    total_amount,
                     deposit_amounts,
                 }
             }
@@ -275,13 +267,11 @@ impl PoolInstruction {
             Self::Create {
                 pool_seed,
                 signal_provider_key,
-                total_amount,
                 deposit_amounts
             } => {
                 buf.push(2);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
-                buf.extend_from_slice(&total_amount.to_le_bytes());
                 for amount in deposit_amounts.iter() {
                     buf.extend_from_slice(&amount.to_le_bytes());
                 }
@@ -323,7 +313,7 @@ impl PoolInstruction {
                 }.to_le_bytes());
             }
             PoolInstruction::Init { pool_seed, max_number_of_assets } => {}
-            PoolInstruction::Create { pool_seed, signal_provider_key, total_amount, deposit_amounts } => {}
+            PoolInstruction::Create { pool_seed, signal_provider_key, deposit_amounts } => {}
             PoolInstruction::Deposit { pool_seed, pool_token_amount } => {}
             PoolInstruction::CreateOrder { pool_seed, side, limit_price, max_qty, order_type, client_id, self_trade_behavior } => {}
         };
@@ -405,14 +395,12 @@ pub fn create(
     source_owner_key: &Pubkey,
     source_asset_keys: &Vec<Pubkey>,
     signal_provider_key: &Pubkey,
-    total_amount: u64,
     deposit_amounts: Vec<u64>,
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
         signal_provider_key: *signal_provider_key,
         deposit_amounts,
-        total_amount
     }
     .pack();
     let mut accounts = vec![
@@ -506,7 +494,6 @@ mod test {
         let original_create = PoolInstruction::Create {
             pool_seed: [50u8; 32],
             signal_provider_key: Pubkey::new_unique(),
-            total_amount: 66 as u64,
             deposit_amounts: vec![23 as u64, 43 as u64]
         };
         let packed_create = original_create.pack();

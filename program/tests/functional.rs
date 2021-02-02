@@ -77,7 +77,7 @@ async fn test_bonfida_bot() {
 
 
     // Initialize the pool
-    let init_instruction = init(
+    let init_instruction = init( 
         &spl_token::id(),
         &system_program::id(),
         &sysvar::rent::id(),
@@ -104,7 +104,6 @@ async fn test_bonfida_bot() {
     let mut mint_asset_keys = vec![];
     let mut pool_asset_keys = vec![];
     let mut source_asset_keys = vec![];
-    let mut total_amounts = 0;
     for i in 0..nb_assets {
         // Init asset mint, first asset is FIDA
         let asset_mint_key = match i {
@@ -148,7 +147,6 @@ async fn test_bonfida_bot() {
                 u32::MAX.into()
             ).unwrap()
         );
-        total_amounts += deposit_amounts[i as usize];
     }
     // Init the pooltoken receiving target
     let (create_target_pooltoken_account, pooltoken_target_key) = create_and_get_associated_token_address(
@@ -179,7 +177,6 @@ async fn test_bonfida_bot() {
 &source_owner.pubkey(),
         &source_asset_keys,
 &Pubkey::new_unique(),
-        total_amounts,
         deposit_amounts
     ).unwrap();
     wrap_process_transaction(

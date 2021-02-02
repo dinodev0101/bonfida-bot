@@ -154,7 +154,6 @@ impl Processor {
         pool_seed: [u8; 32],
         signal_provider_key: &Pubkey,
         deposit_amounts: Vec<u64>,
-        total_amount: u64
     ) -> ProgramResult {
         let number_of_assets = deposit_amounts.len();
         let accounts_iter = &mut accounts.iter();
@@ -236,7 +235,7 @@ impl Processor {
             )?;
             pool_assets.push(PoolAsset {
                 mint_address: mint_asset_key,
-                amount_in_token: deposit_amounts[i as usize].checked_div(total_amount).unwrap(),//TODO
+                amount_in_token: deposit_amounts[i as usize],
             });
         }
 
@@ -252,7 +251,7 @@ impl Processor {
             target_pool_token_account.key, 
             &pool_key,
             &[],
-            1
+            1000000
         )?;
 
         invoke_signed(
@@ -874,7 +873,6 @@ impl Processor {
                 pool_seed,
                 signal_provider_key,
                 deposit_amounts,
-                total_amount
             } => {
                 msg!("Instruction: Create Pool");
                 Self::process_create(
@@ -883,7 +881,6 @@ impl Processor {
                     pool_seed,
                     &signal_provider_key,
                     deposit_amounts,
-                    total_amount
                 )
             },
             PoolInstruction::Deposit {
