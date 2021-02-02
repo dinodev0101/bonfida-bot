@@ -1,10 +1,42 @@
-use std::{cmp::{max, min}, collections::HashMap, convert::TryInto, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
+use std::{
+    cmp::min,
+    convert::TryInto,
+    num::{NonZeroU16, NonZeroU64, NonZeroU8},
+};
 
-use serum_dex::{instruction::{SelfTradeBehavior, initialize_market, new_order, settle_funds}, matching::{OrderType, Side}};
-use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::PrintProgramError, program_error::{INVALID_ARGUMENT, ProgramError}, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::{clock::Clock, Sysvar}};
-use spl_token::{instruction::{initialize_mint, mint_to, transfer, initialize_account}, state::Account, state::Mint};
+use crate::{
+    error::BonfidaBotError,
+    instruction::{self, PoolInstruction},
+    state::{
+        pack_asset, unpack_assets, unpack_unchecked_asset, OrderTracker, PoolAsset, PoolHeader,
+        PoolStatus, FIDA_MINT_KEY, FIDA_MIN_AMOUNT,
+    },
+    utils::{
+        check_open_orders_account, check_order_tracker, check_pool_key, check_signal_provider,
+    },
+};
+use serum_dex::{
+    instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
+    matching::{OrderType, Side},
+};
+use solana_program::{
+    account_info::{next_account_info, AccountInfo},
+    entrypoint::ProgramResult,
+    msg,
+    program::{invoke, invoke_signed},
+    program_error::ProgramError,
+    program_pack::{IsInitialized, Pack},
+    pubkey::Pubkey,
+    rent::Rent,
+    system_instruction::create_account,
+    sysvar::Sysvar,
+};
 use spl_associated_token_account::get_associated_token_address;
-use crate::{error::BonfidaBotError, instruction::{self, PoolInstruction}, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, OrderTracker, PoolAsset, PoolHeader, PoolStatus, pack_asset, unpack_assets, unpack_unchecked_asset}};
+use spl_token::{
+    instruction::{initialize_mint, mint_to, transfer},
+    state::Account,
+    state::Mint,
+};
 
 pub struct Processor {}
 
@@ -13,7 +45,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
-        max_number_of_assets: u32
+        max_number_of_assets: u32,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
 
@@ -40,7 +72,8 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let state_size = PoolHeader::LEN + max_number_of_assets as usize * instruction::MARKET_DATA_SIZE;
+        let state_size =
+            PoolHeader::LEN + max_number_of_assets as usize * instruction::MARKET_DATA_SIZE;
 
         let create_pool_account = create_account(
             &payer_account.key,
@@ -81,23 +114,20 @@ impl Processor {
             &[
                 system_program_account.clone(),
                 payer_account.clone(),
-                mint_account.clone()
+                mint_account.clone(),
             ],
-            &[&[&pool_seed, &[1]]]
+            &[&[&pool_seed, &[1]]],
         )?;
 
         invoke(
             &init_mint,
-            &[
-                mint_account.clone(),
-                rent_sysvar_account.clone()
-            ]
+            &[mint_account.clone(), rent_sysvar_account.clone()],
         )?;
 
         Ok(())
     }
 
-    pub fn process_init_order_tracker(        
+    pub fn process_init_order_tracker(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
@@ -121,10 +151,13 @@ impl Processor {
         }
 
         // Find the non reversible public key for the pool mint account via the seed
-        let (order_tracker_key, _) = Pubkey::find_program_address(&[&pool_seed, &openorders_account.key.to_bytes()], program_id);
+        let (order_tracker_key, _) = Pubkey::find_program_address(
+            &[&pool_seed, &openorders_account.key.to_bytes()],
+            program_id,
+        );
         if &order_tracker_key != order_tracker_account.key {
             msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         let init_pool_account = create_account(
@@ -172,10 +205,10 @@ impl Processor {
         for _ in 0..number_of_assets {
             source_assets_accounts.push(next_account_info(accounts_iter)?)
         }
-        
+
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
         let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
-        
+
         if pool_key != *pool_account.key {
             msg!("Provided pool account is invalid");
             return Err(ProgramError::InvalidArgument);
@@ -185,9 +218,10 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
         // Verifying that no pool was already created with this seed
-        let pool_status = PoolHeader::unpack_from_slice(
-            &pool_account.try_borrow_data()?[..PoolHeader::LEN]
-        ).unwrap().status;
+        let pool_status =
+            PoolHeader::unpack_from_slice(&pool_account.try_borrow_data()?[..PoolHeader::LEN])
+                .unwrap()
+                .status;
         if pool_status != PoolStatus::Uninitialized {
             msg!("Cannot overwrite an existing pool.");
             return Err(ProgramError::InvalidArgument);
@@ -200,11 +234,12 @@ impl Processor {
             msg!("Source token account owner should be a signer.");
             return Err(ProgramError::InvalidArgument);
         }
-        
+
         let mut enough_fida = false;
         let mut pool_assets: Vec<PoolAsset> = vec![];
         for i in 0..number_of_assets {
-            let mint_asset_key = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            let mint_asset_key =
+                Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
             let pool_asset_key = get_associated_token_address(&pool_key, &mint_asset_key);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
@@ -214,7 +249,8 @@ impl Processor {
 
             // Verify that the first deposit credits more than the min amount of FIDA tokens
             enough_fida = ((&mint_asset_key.to_string()[..] == FIDA_MINT_KEY)
-                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT)) | enough_fida;
+                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT))
+                | enough_fida;
 
             let transfer_instruction = transfer(
                 spl_token_account.key,
@@ -240,7 +276,10 @@ impl Processor {
         }
 
         if !enough_fida {
-            msg!("Pool should always hold at least {:?} FIDA tokens", FIDA_MIN_AMOUNT);
+            msg!(
+                "Pool should always hold at least {:?} FIDA tokens",
+                FIDA_MIN_AMOUNT
+            );
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -248,31 +287,31 @@ impl Processor {
         let instruction = mint_to(
             spl_token_account.key,
             &mint_key,
-            target_pool_token_account.key, 
+            target_pool_token_account.key,
             &pool_key,
             &[],
-            1000000
+            1000000,
         )?;
 
         invoke_signed(
-            &instruction, 
+            &instruction,
             &[
                 spl_token_account.clone(),
                 mint_account.clone(),
                 target_pool_token_account.clone(),
-                pool_account.clone()
-            ], 
+                pool_account.clone(),
+            ],
             &[&[&pool_seed]],
         )?;
 
         // Write state header into data
         let state_header = PoolHeader {
             signal_provider: *signal_provider_key,
-            status: PoolStatus::Unlocked
+            status: PoolStatus::Unlocked,
         };
         let mut data = pool_account.data.borrow_mut();
         state_header.pack_into_slice(&mut data);
-        
+
         // Write the assets into the account data
         let mut offset = PoolHeader::LEN;
         for asset in pool_assets.iter() {
@@ -312,7 +351,8 @@ impl Processor {
         }
 
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
-        let pool_mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        let pool_mint_key =
+            Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
         // Safety verifications
         if pool_key != *pool_account.key {
             msg!("Provided pool account doesn't match the provided pool seed");
@@ -331,29 +371,32 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
         if pool_header.status == PoolStatus::Locked {
-            msg!("Pool is currently locked by signal provider, \
-                no buy-ins are possible");
+            msg!(
+                "Pool is currently locked by signal provider, \
+                no buy-ins are possible"
+            );
             return Err(ProgramError::InvalidArgument);
         }
-
 
         // Compute buy-in amount. The effective buy-in amount can be less than the
         // input_token_amount as the source accounts need to satisfy the pool asset ratios
         let mut pool_token_effective_amount = std::u64::MAX;
         for i in 0..nb_assets {
-            let source_asset_amount = Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
+            let source_asset_amount =
+                Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
             pool_token_effective_amount = min(
-                source_asset_amount.checked_div(pool_assets[i].amount_in_token).unwrap_or(std::u64::MAX), 
-                pool_token_effective_amount
+                source_asset_amount
+                    .checked_div(pool_assets[i].amount_in_token)
+                    .unwrap_or(std::u64::MAX),
+                pool_token_effective_amount,
             );
         }
         pool_token_effective_amount = min(pool_token_amount, pool_token_effective_amount);
-        
+
         // Execute buy in
         for i in 0..nb_assets {
-            let pool_asset_key = get_associated_token_address(
-                &pool_key, 
-                &pool_assets[i].mint_address);
+            let pool_asset_key =
+                get_associated_token_address(&pool_key, &pool_assets[i].mint_address);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
                 msg!("Provided pool asset account is invalid");
@@ -389,20 +432,20 @@ impl Processor {
         let instruction = mint_to(
             spl_token_account.key,
             &pool_mint_key,
-            target_pool_token_account.key, 
+            target_pool_token_account.key,
             &pool_key,
             &[],
-            pool_token_effective_amount
+            pool_token_effective_amount,
         )?;
 
         invoke_signed(
-            &instruction, 
+            &instruction,
             &[
                 spl_token_account.clone(),
                 mint_account.clone(),
                 target_pool_token_account.clone(),
-                pool_account.clone()
-            ], 
+                pool_account.clone(),
+            ],
             &[&[&pool_seed]],
         )?;
 
@@ -413,14 +456,14 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
-        side:Side,
+        side: Side,
         limit_price: NonZeroU64,
         max_qty: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
         source_index: usize,
-        target_index: usize
+        target_index: usize,
     ) -> ProgramResult {
         // TODO : Enforce one order limit on openorders accounts
 
@@ -440,36 +483,31 @@ impl Processor {
         let dex_program_id = next_account_info(account_iter)?;
         let discount_account = next_account_info(account_iter).ok();
 
+        check_pool_key(program_id, pool_account.key, &pool_seed)?;
 
-        let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id)?;
-        if pool_account.key != &pool_key {
-            msg!("Provided pool account does not match the provided pool seed");
-            return Err(ProgramError::InvalidArgument)
-        }
-        let order_state_key = Pubkey::create_program_address(&[&pool_seed, &openorders_account.key.to_bytes()], program_id)?;
-        if &order_state_key != order_tracker_account.key {
-            msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
-            return Err(ProgramError::InvalidArgument)
-        }
+        check_order_tracker(
+            program_id,
+            order_tracker_account.key,
+            &pool_seed,
+            openorders_account.key,
+        )?;
 
         let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
-        let coin_lot_size = u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
+        let coin_lot_size =
+            u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
         let pc_mint = Pubkey::new(&market.data.borrow()[85..117]);
-        let pc_lot_size = u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
+        let pc_lot_size =
+            u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
 
-        // TODO : check offsets
-        let open_orders_account_owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
-
-        if &open_orders_account_owner != pool_account.key {
-            msg!("The pool account should own the open orders account");
-        }
+        check_open_orders_account(openorders_account, pool_account.key)?;
 
         let source_account = Account::unpack(&pool_asset_token_account.data.borrow())?;
-        let source_token_account_key = get_associated_token_address(&pool_key, &source_account.mint);
+        let source_token_account_key =
+            get_associated_token_address(pool_account.key, &source_account.mint);
 
         if pool_asset_token_account.key != &source_token_account_key {
             msg!("Source token account should be associated to the pool account");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
@@ -477,24 +515,32 @@ impl Processor {
             msg!("The signal provider's signature is required.");
             return Err(ProgramError::MissingRequiredSignature);
         }
-        if signal_provider_account.key != &pool_header.signal_provider{
+        if signal_provider_account.key != &pool_header.signal_provider {
             msg!("A wrong signal provider account was provided.");
             return Err(ProgramError::MissingRequiredSignature);
         }
         match pool_header.status {
-            PoolStatus::Uninitialized => { return Err(ProgramError::UninitializedAccount) }
-            PoolStatus::Unlocked => { pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap()) }
-            PoolStatus::Locked => { pool_header.status = PoolStatus::LockedPendingOrder(NonZeroU8::new(1).unwrap()) }
+            PoolStatus::Uninitialized => return Err(ProgramError::UninitializedAccount),
+            PoolStatus::Unlocked => {
+                pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap())
+            }
+            PoolStatus::Locked => {
+                pool_header.status = PoolStatus::LockedPendingOrder(NonZeroU8::new(1).unwrap())
+            }
             PoolStatus::PendingOrder(n) | PoolStatus::LockedPendingOrder(n) => {
                 if n.get() == 64 {
                     msg!("Maximum number of pending orders has been reached. Settle or cancel a pending order.");
-                    return Err(BonfidaBotError::Overflow.into())
+                    return Err(BonfidaBotError::Overflow.into());
                 }
                 let pending_orders = NonZeroU8::new(n.get() + 1).unwrap();
                 pool_header.status = match pool_header.status {
-                    PoolStatus::PendingOrder(_) => {PoolStatus::PendingOrder(pending_orders)}
-                    PoolStatus::LockedPendingOrder(_) => {PoolStatus::LockedPendingOrder(pending_orders)}
-                    _ => {unreachable!()}
+                    PoolStatus::PendingOrder(_) => PoolStatus::PendingOrder(pending_orders),
+                    PoolStatus::LockedPendingOrder(_) => {
+                        PoolStatus::LockedPendingOrder(pending_orders)
+                    }
+                    _ => {
+                        unreachable!()
+                    }
                 }
             }
         };
@@ -502,85 +548,93 @@ impl Processor {
         let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
         let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
 
-        if !source_asset.is_initialized(){
+        if !source_asset.is_initialized() {
             msg!("The pool has no account at the specificed source index");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         if source_asset.mint_address != source_account.mint {
-            msg!("Provided coin account does not match the pool source asset")
+            msg!("Provided coin account does not match the pool source asset");
+            return Err(ProgramError::InvalidArgument);
         }
 
         if &source_account.owner != pool_account.key {
-            msg!("Provided coin account should be owned by the pool")
+            msg!("Provided coin account should be owned by the pool");
+            return Err(ProgramError::InvalidArgument);
         }
 
         let target_mint = match side {
-                Side::Bid => {coin_mint}
-                Side::Ask => {pc_mint}
-            };
+            Side::Bid => coin_mint,
+            Side::Ask => pc_mint,
+        };
 
-        if target_asset.is_initialized(){
+        if target_asset.is_initialized() {
             if target_asset.mint_address != target_mint {
                 msg!("Target asset does not match bid currency");
-                return Err(ProgramError::InvalidArgument)
+                return Err(ProgramError::InvalidArgument);
             }
         } else {
             target_asset.mint_address = target_mint;
-            pack_asset(&mut pool_account.data.borrow_mut(), &target_asset, target_index)?;
+            pack_asset(
+                &mut pool_account.data.borrow_mut(),
+                &target_asset,
+                target_index,
+            )?;
         }
 
-        if source_asset.mint_address != match side {
-            Side::Bid => {pc_mint}
-            Side::Ask => {coin_mint}
-        } {
+        if source_asset.mint_address
+            != match side {
+                Side::Bid => pc_mint,
+                Side::Ask => coin_mint,
+            }
+        {
             msg!("Wrong source index provided.");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
-
-
 
         let cast_value: u128 = source_asset.amount_in_token.into();
-        let cast_total: u128 = source_account.amount.into();
 
-        let amount_to_trade_in_token = (cast_value.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
-        let amount_to_trade = (cast_total.checked_mul(max_qty.get().into()).ok_or(BonfidaBotError::Overflow)? >> 16) as u64;
+        let amount_to_trade_in_token = (cast_value
+            .checked_mul(max_qty.get().into())
+            .ok_or(BonfidaBotError::Overflow)?
+            >> 16) as u64;
 
-        let lots_to_trade = amount_to_trade_in_token.checked_div(match side {
-            Side::Bid => {pc_lot_size}
-            Side::Ask => {coin_lot_size}
-        }).ok_or(BonfidaBotError::Overflow)?;
+        let lots_to_trade = amount_to_trade_in_token
+            .checked_div(match side {
+                Side::Bid => pc_lot_size,
+                Side::Ask => coin_lot_size,
+            })
+            .ok_or(BonfidaBotError::Overflow)?;
 
         let expected_target_tokens = match side {
-            Side::Bid => {
-                lots_to_trade
-                    .checked_div(limit_price.get())
-                    .and_then(|n| n.checked_mul(coin_lot_size))
-                    .ok_or_else(|| {
-                        msg!("Limit price caused an overflow. Reduce the size of the order.");
-                        BonfidaBotError::Overflow
-                    })?
-                }
-            Side::Ask => {
-                lots_to_trade
-                    .checked_mul(limit_price.get())
-                    .and_then(|n| n.checked_mul(pc_lot_size))
-                    .ok_or(ProgramError::InvalidArgument)?
-                }
+            Side::Bid => lots_to_trade
+                .checked_div(limit_price.get())
+                .and_then(|n| n.checked_mul(coin_lot_size))
+                .ok_or_else(|| {
+                    msg!("Limit price caused an overflow. Reduce the size of the order.");
+                    BonfidaBotError::Overflow
+                })?,
+            Side::Ask => lots_to_trade
+                .checked_mul(limit_price.get())
+                .and_then(|n| n.checked_mul(pc_lot_size))
+                .ok_or(ProgramError::InvalidArgument)?,
         };
 
         source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_in_token;
 
-        pack_asset(&mut pool_account.data.borrow_mut(), &source_asset, source_index)?;
+        pack_asset(
+            &mut pool_account.data.borrow_mut(),
+            &source_asset,
+            source_index,
+        )?;
 
         let order_tracker = OrderTracker {
             side,
             source_amount_per_token: amount_to_trade_in_token,
-            pending_target_amount: expected_target_tokens
+            pending_target_amount: expected_target_tokens,
         };
 
         order_tracker.pack_into_slice(&mut order_tracker_account.data.borrow_mut());
-
 
         let new_order_instruction = new_order(
             market.key,
@@ -592,37 +646,33 @@ impl Processor {
             pc_vault.key,
             spl_token_program.key,
             rent_sysvar_account.key,
-            discount_account.map(|account| {account.key}),
+            discount_account.map(|account| account.key),
             dex_program_id.key,
             side,
             limit_price,
             NonZeroU64::new(lots_to_trade).ok_or(BonfidaBotError::Overflow)?,
             order_type,
             client_id,
-            self_trade_behavior
+            self_trade_behavior,
         )?;
 
         let mut account_infos = vec![
-                market.clone(),
-                openorders_account.clone(),
-                request_queue.clone(),
-                pool_asset_token_account.clone(),
-                pool_account.clone(),
-                coin_vault.clone(),
-                pc_vault.clone(),
-                spl_token_program.clone(),
-                rent_sysvar_account.clone()
+            market.clone(),
+            openorders_account.clone(),
+            request_queue.clone(),
+            pool_asset_token_account.clone(),
+            pool_account.clone(),
+            coin_vault.clone(),
+            pc_vault.clone(),
+            spl_token_program.clone(),
+            rent_sysvar_account.clone(),
         ];
 
         if let Some(account) = discount_account {
             account_infos.push(account.clone());
         }
 
-        invoke_signed(
-            &new_order_instruction,
-            &account_infos,
-            &[&[&pool_seed]]
-        )?;
+        invoke_signed(&new_order_instruction, &account_infos, &[&[&pool_seed]])?;
 
         Ok(())
     }
@@ -632,16 +682,15 @@ impl Processor {
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
         pc_index: usize,
-        coin_index: usize
+        coin_index: usize,
     ) -> ProgramResult {
-
         let account_iter = &mut accounts.iter();
         let market = next_account_info(account_iter)?;
         let openorders_account = next_account_info(account_iter)?;
         let order_tracker_account = next_account_info(account_iter)?;
         let pool_account = next_account_info(account_iter)?;
-        let coin_vault = next_account_info(account_iter)?;
         let pool_token_mint = next_account_info(account_iter)?;
+        let coin_vault = next_account_info(account_iter)?;
         let pc_vault = next_account_info(account_iter)?;
         let pool_coin_wallet = next_account_info(account_iter)?;
         let pool_pc_wallet = next_account_info(account_iter)?;
@@ -651,47 +700,43 @@ impl Processor {
 
         let discount_account = next_account_info(account_iter).ok();
 
-        let pool_key = Pubkey::create_program_address(&[&pool_seed], program_id)?;
+        check_pool_key(program_id, pool_account.key, &pool_seed)?;
 
-        if &pool_key != pool_account.key {
-            msg!("Provided pool account does not match the provided pool seed");
-            return Err(ProgramError::InvalidArgument)
-        }
+        check_order_tracker(
+            program_id,
+            order_tracker_account.key,
+            &pool_seed,
+            openorders_account.key,
+        )?;
 
-        let (order_state_key, _) = Pubkey::find_program_address(&[&pool_seed, &openorders_account.key.to_bytes()], program_id);
-        if &order_state_key != order_tracker_account.key {
-            msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
-            return Err(ProgramError::InvalidArgument)
-        }
-
-        let mut order_tracker = OrderTracker::unpack(&order_tracker_account.data.borrow()).map_err(|e| {
-            msg!("Provided order is empty");
-            e
-        })?;
+        let mut order_tracker = OrderTracker::unpack(&order_tracker_account.data.borrow())
+            .map_err(|e| {
+                msg!("Provided order is empty");
+                e
+            })?;
 
         let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
-        let coin_lot_size = u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
         let pc_mint = Pubkey::new(&market.data.borrow()[85..117]);
-        let pc_lot_size = u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
 
         let pool_coin_account_key = get_associated_token_address(pool_account.key, &coin_mint);
         let pool_pc_account_key = get_associated_token_address(pool_account.key, &pc_mint);
-        let pool_mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        let pool_mint_key =
+            Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
 
         if &pool_mint_key != pool_token_mint.key {
             msg!("Provided pool mint account is invalid.");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         let pool_mint_account = Mint::unpack(&pool_token_mint.data.borrow())?;
 
         if &pool_coin_account_key != pool_coin_wallet.key {
             msg!("Provided pool coin account does not match the pool coin asset");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
         if &pool_pc_account_key != pool_pc_wallet.key {
             msg!("Provided pool pc account does not match the pool pc asset");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         let pool_coin_account = Account::unpack(&pool_coin_wallet.data.borrow())?;
@@ -702,27 +747,27 @@ impl Processor {
 
         if &pool_coin_account.owner != pool_account.key {
             msg!("Pool should own the provided coin account");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         if &pool_pc_account.owner != pool_account.key {
             msg!("Pool should own the provided price coin account");
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
-        if pool_coin_asset.is_initialized(){
+        if pool_coin_asset.is_initialized() {
             if pool_coin_asset.mint_address != coin_mint {
                 msg!("Coin asset does not match market coin token");
-                return Err(ProgramError::InvalidArgument)
+                return Err(ProgramError::InvalidArgument);
             }
         } else {
             pool_coin_asset.mint_address = coin_mint
         }
 
-        if pool_pc_asset.is_initialized(){
+        if pool_pc_asset.is_initialized() {
             if pool_pc_asset.mint_address != pc_mint {
                 msg!("Coin asset does not match market pc token");
-                return Err(ProgramError::InvalidArgument)
+                return Err(ProgramError::InvalidArgument);
             }
         } else {
             pool_pc_asset.mint_address = pc_mint
@@ -731,112 +776,178 @@ impl Processor {
         // TODO : check offsets
         let openorders_account_owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
 
-
         if &openorders_account_owner != pool_account.key {
             msg!("The pool account should own the open orders account");
         }
 
-        let openorders_free_pc = openorders_account.data.borrow()
+        let openorders_free_pc = openorders_account
+            .data
+            .borrow()
             .get(88..96)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
-        let openorders_free_coin = openorders_account.data.borrow()
+        let openorders_free_coin = openorders_account
+            .data
+            .borrow()
             .get(72..80)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
 
-        let openorders_total_pc = openorders_account.data.borrow()
+        let openorders_total_pc = openorders_account
+            .data
+            .borrow()
             .get(96..108)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
-        let openorders_total_coin = openorders_account.data.borrow()
+        let openorders_total_coin = openorders_account
+            .data
+            .borrow()
             .get(80..88)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
-        
+
         // TODO: Think about this attack vector when operations are too small to be picked up by this division
-        let (
-            free_source_amount, 
-            total_source_amount,
-            free_target_amount
-        ) = match order_tracker.side {
-            Side::Bid => {(openorders_free_pc, openorders_total_pc, openorders_free_coin)}
-            Side::Ask => {(openorders_free_coin, openorders_total_coin, openorders_free_coin)}
+        let (free_source_amount, total_source_amount, free_target_amount) = match order_tracker.side
+        {
+            Side::Bid => (
+                openorders_free_pc,
+                openorders_total_pc,
+                openorders_free_coin,
+            ),
+            Side::Ask => (
+                openorders_free_coin,
+                openorders_total_coin,
+                openorders_free_coin,
+            ),
         };
-        let source_proportion_of_order = 
-            ((free_source_amount as u128) << 64)
-                .checked_div(total_source_amount as u128)
-                .ok_or(ProgramError::InvalidAccountData)? as u64;
+        let source_proportion_of_order = ((free_source_amount as u128) << 64)
+            .checked_div(total_source_amount as u128)
+            .ok_or(ProgramError::InvalidAccountData)?
+            as u64;
 
         let target_proportion_of_order = ((free_target_amount as u128) << 64)
-                    .checked_div(order_tracker.pending_target_amount as u128)
-                    .ok_or(ProgramError::InvalidAccountData)? as u64;
-        
-        
-        if (source_proportion_of_order == 0) & (target_proportion_of_order == 0){
+            .checked_div(order_tracker.pending_target_amount as u128)
+            .ok_or(ProgramError::InvalidAccountData)?
+            as u64;
+
+        if (source_proportion_of_order == 0) & (target_proportion_of_order == 0) {
             msg!("Settle operation is too small");
             return Err(BonfidaBotError::Overflow.into());
         }
 
-        order_tracker.pending_target_amount = order_tracker.pending_target_amount - free_target_amount;
-        order_tracker.source_amount_per_token =  (
-            ((u64::MAX - source_proportion_of_order) as u128)
-                .checked_mul(order_tracker.source_amount_per_token as u128)
-                .ok_or(BonfidaBotError::Overflow)? >> 64
-        ) as u64;
+        order_tracker.pending_target_amount =
+            order_tracker.pending_target_amount - free_target_amount;
+        order_tracker.source_amount_per_token = (((u64::MAX - source_proportion_of_order) as u128)
+            .checked_mul(order_tracker.source_amount_per_token as u128)
+            .ok_or(BonfidaBotError::Overflow)?
+            >> 64) as u64;
 
         let total_coin_assets = pool_coin_account.amount + openorders_free_coin;
         let total_pc_assets = pool_pc_account.amount + openorders_free_pc;
 
-        pool_coin_asset.amount_in_token = total_coin_assets.checked_div(pool_mint_account.supply).ok_or(BonfidaBotError::Overflow)?;
-        pool_pc_asset.amount_in_token = total_pc_assets.checked_div(pool_mint_account.supply).ok_or(BonfidaBotError::Overflow)?;
+        pool_coin_asset.amount_in_token = total_coin_assets
+            .checked_div(pool_mint_account.supply)
+            .ok_or(BonfidaBotError::Overflow)?;
+        pool_pc_asset.amount_in_token = total_pc_assets
+            .checked_div(pool_mint_account.supply)
+            .ok_or(BonfidaBotError::Overflow)?;
 
         order_tracker.pack_into_slice(&mut order_tracker_account.data.borrow_mut());
-        pack_asset(&mut pool_account.data.borrow_mut(), &pool_coin_asset, coin_index);
-        pack_asset(&mut pool_account.data.borrow_mut(), &pool_pc_asset, pc_index);
-
+        pack_asset(
+            &mut pool_account.data.borrow_mut(),
+            &pool_coin_asset,
+            coin_index,
+        )?;
+        pack_asset(
+            &mut pool_account.data.borrow_mut(),
+            &pool_pc_asset,
+            pc_index,
+        )?;
 
         let instruction = settle_funds(
-            dex_program.key, 
-            market.key, 
-            spl_token_program.key, 
-            openorders_account.key, 
-            pool_account.key, 
-            coin_vault.key, 
-            pool_coin_wallet.key, 
-            pc_vault.key, 
-            pool_pc_wallet.key, 
-            discount_account.map(|a| a.key), 
-            vault_signer.key
+            dex_program.key,
+            market.key,
+            spl_token_program.key,
+            openorders_account.key,
+            pool_account.key,
+            coin_vault.key,
+            pool_coin_wallet.key,
+            pc_vault.key,
+            pool_pc_wallet.key,
+            discount_account.map(|a| a.key),
+            vault_signer.key,
         )?;
 
         let mut accounts = vec![
-                dex_program.clone(),
-                market.clone(),
-                openorders_account.clone(),
-                pool_account.clone(),
-                coin_vault.clone(),
-                pc_vault.clone(),
-                pool_coin_wallet.clone(),
-                pool_pc_wallet.clone(),
-                vault_signer.clone(),
-                spl_token_program.clone()
-            ];
-        
+            dex_program.clone(),
+            market.clone(),
+            openorders_account.clone(),
+            pool_account.clone(),
+            coin_vault.clone(),
+            pc_vault.clone(),
+            pool_coin_wallet.clone(),
+            pool_pc_wallet.clone(),
+            vault_signer.clone(),
+            spl_token_program.clone(),
+        ];
+
         if let Some(a) = discount_account {
             accounts.push(a.clone())
         }
 
+        invoke_signed(&instruction, &accounts, &[&[&pool_seed]])?;
+
+        Ok(())
+    }
+
+    pub fn process_cancel(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        pool_seed: [u8; 32],
+        side: Side,
+        order_id: u128,
+    ) -> ProgramResult {
+        let accounts_iter = &mut accounts.iter();
+
+        let signal_provider = next_account_info(accounts_iter)?;
+        let market = next_account_info(accounts_iter)?;
+        let openorders_account = next_account_info(accounts_iter)?;
+        let request_queue = next_account_info(accounts_iter)?;
+        let pool_account = next_account_info(accounts_iter)?;
+        let dex_program = next_account_info(accounts_iter)?;
+
+        check_pool_key(program_id, pool_account.key, &pool_seed)?;
+        check_open_orders_account(openorders_account, pool_account.key)?;
+
+        let pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        check_signal_provider(&pool_header, signal_provider, true)?;
+
+        let instruction = cancel_order(
+            program_id,
+            market.key,
+            openorders_account.key,
+            pool_account.key,
+            request_queue.key,
+            side,
+            order_id,
+            [0u64; 4],
+            0,
+        )?;
+
         invoke_signed(
             &instruction,
-            &accounts,
-            &[&[&pool_seed]]
-        );
-
+            &vec![
+                dex_program.clone(),
+                openorders_account.clone(),
+                request_queue.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
 
         Ok(())
     }
@@ -852,23 +963,15 @@ impl Processor {
         match instruction {
             PoolInstruction::Init {
                 pool_seed,
-                max_number_of_assets
+                max_number_of_assets,
             } => {
                 msg!("Instruction: Init");
-                Self::process_init(program_id,
-                    accounts,
-                    pool_seed,
-                    max_number_of_assets)
-            },
-            PoolInstruction::InitOrderTracker {
-                pool_seed,
-            } => {
+                Self::process_init(program_id, accounts, pool_seed, max_number_of_assets)
+            }
+            PoolInstruction::InitOrderTracker { pool_seed } => {
                 msg!("Instruction: Init Order Tracker");
-                Self::process_init_order_tracker(program_id,
-                    accounts,
-                    pool_seed,
-                )
-            },
+                Self::process_init_order_tracker(program_id, accounts, pool_seed)
+            }
             PoolInstruction::Create {
                 pool_seed,
                 signal_provider_key,
@@ -882,18 +985,13 @@ impl Processor {
                     &signal_provider_key,
                     deposit_amounts,
                 )
-            },
+            }
             PoolInstruction::Deposit {
                 pool_seed,
-                pool_token_amount
+                pool_token_amount,
             } => {
                 msg!("Instruction: Deposit into Pool");
-                Self::process_deposit(
-                    program_id,
-                    accounts,
-                    pool_seed,
-                    pool_token_amount
-                )
+                Self::process_deposit(program_id, accounts, pool_seed, pool_token_amount)
             }
             PoolInstruction::CreateOrder {
                 pool_seed,
@@ -902,31 +1000,45 @@ impl Processor {
                 max_qty,
                 order_type,
                 client_id,
-                self_trade_behavior
+                self_trade_behavior,
             } => {
                 msg!("Instruction: Create Order for Pool");
                 Self::process_create_order(
-                    program_id, 
+                    program_id,
                     accounts,
-                    pool_seed, 
-                    side, 
-                    limit_price, 
+                    pool_seed,
+                    side,
+                    limit_price,
                     max_qty,
-                    order_type, 
-                    client_id, 
+                    order_type,
+                    client_id,
                     self_trade_behavior,
                     0,
-                    0
+                    0,
                 )
+            }
+            PoolInstruction::SettleFunds {
+                pool_seed,
+                pc_index,
+                coin_index,
+            } => {
+                msg!("Instruction: Settle funds for Pool");
+                Self::process_settle(
+                    program_id,
+                    accounts,
+                    pool_seed,
+                    pc_index as usize,
+                    coin_index as usize,
+                )
+            }
+            PoolInstruction::CancelOrder {
+                pool_seed,
+                side,
+                order_id,
+            } => {
+                msg!("Instruction: Cancel Order for Pool");
+                Self::process_cancel(program_id, accounts, pool_seed, side, order_id)
             }
         }
     }
-}
-
-
-
-fn ratio(a: u64, b:u64) -> Result<u128, BonfidaBotError> {
-    ((a as u128) << 64)
-    .checked_div(b as u128)
-    .ok_or(BonfidaBotError::Overflow)
 }

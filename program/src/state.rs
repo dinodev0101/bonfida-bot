@@ -1,7 +1,11 @@
-use std::{cmp::Ordering, convert::TryInto, num::NonZeroU8};
 use serum_dex::matching::Side;
-use solana_program::{msg, program_error::ProgramError, program_pack::{IsInitialized, Pack, Sealed}, pubkey::Pubkey};
-use arrayref::mut_array_refs;
+use solana_program::{
+    msg,
+    program_error::ProgramError,
+    program_pack::{IsInitialized, Pack, Sealed},
+    pubkey::Pubkey,
+};
+use std::{convert::TryInto, num::NonZeroU8};
 
 pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
@@ -9,7 +13,7 @@ pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
-    pub amount_in_token: u64
+    pub amount_in_token: u64,
 }
 #[derive(Debug, PartialEq)]
 pub enum PoolStatus {
@@ -18,7 +22,7 @@ pub enum PoolStatus {
     Locked,
     /// Maximum number of pending orders is 64, minimum is 1.
     PendingOrder(NonZeroU8),
-    LockedPendingOrder(NonZeroU8)
+    LockedPendingOrder(NonZeroU8),
 }
 
 #[derive(Debug, PartialEq)]
@@ -27,10 +31,10 @@ pub struct PoolHeader {
     pub status: PoolStatus,
 }
 
-const STATUS_PENDING_ORDER_FLAG:u8 = 1 << 6;
-const STATUS_PENDING_ORDER_MASK:u8 = 0x3f;
-const STATUS_LOCKED_FLAG:u8 = 2 << 6;
-const STATUS_UNLOCKED_FLAG:u8 = STATUS_PENDING_ORDER_MASK;
+const STATUS_PENDING_ORDER_FLAG: u8 = 1 << 6;
+const STATUS_PENDING_ORDER_MASK: u8 = 0x3f;
+const STATUS_LOCKED_FLAG: u8 = 2 << 6;
+const STATUS_UNLOCKED_FLAG: u8 = STATUS_PENDING_ORDER_MASK;
 
 impl Sealed for PoolHeader {}
 
@@ -43,14 +47,16 @@ impl Pack for PoolHeader {
             target[i] = signal_provider_bytes[i];
         }
         target[32] = match self.status {
-            PoolStatus::Uninitialized => {0}
-            PoolStatus::Unlocked => {STATUS_UNLOCKED_FLAG}
-            PoolStatus::Locked => {STATUS_LOCKED_FLAG}
+            PoolStatus::Uninitialized => 0,
+            PoolStatus::Unlocked => STATUS_UNLOCKED_FLAG,
+            PoolStatus::Locked => STATUS_LOCKED_FLAG,
             PoolStatus::PendingOrder(n) => {
                 STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
             }
             PoolStatus::LockedPendingOrder(n) => {
-                STATUS_LOCKED_FLAG | STATUS_PENDING_ORDER_FLAG | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
+                STATUS_LOCKED_FLAG
+                    | STATUS_PENDING_ORDER_FLAG
+                    | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
             }
         }
     }
@@ -60,21 +66,23 @@ impl Pack for PoolHeader {
         let status = if src[32] == 0 {
             PoolStatus::Uninitialized
         } else {
-            match src[32] >> 6{
-            0 => {PoolStatus::Unlocked},
-            1 => {PoolStatus::PendingOrder(NonZeroU8::new(
-                (src[32] & STATUS_PENDING_ORDER_MASK) + 1).ok_or(ProgramError::InvalidArgument)?
-            )},
-            2 => {PoolStatus::Locked},
-            3 => {PoolStatus::LockedPendingOrder(NonZeroU8::new(
-                (src[32] & STATUS_PENDING_ORDER_MASK) + 1).ok_or(ProgramError::InvalidArgument)?
-            )}
-            _ => return Err(ProgramError::InvalidAccountData)
-        }
+            match src[32] >> 6 {
+                0 => PoolStatus::Unlocked,
+                1 => PoolStatus::PendingOrder(
+                    NonZeroU8::new((src[32] & STATUS_PENDING_ORDER_MASK) + 1)
+                        .ok_or(ProgramError::InvalidArgument)?,
+                ),
+                2 => PoolStatus::Locked,
+                3 => PoolStatus::LockedPendingOrder(
+                    NonZeroU8::new((src[32] & STATUS_PENDING_ORDER_MASK) + 1)
+                        .ok_or(ProgramError::InvalidArgument)?,
+                ),
+                _ => return Err(ProgramError::InvalidAccountData),
+            }
         };
         Ok(Self {
             signal_provider,
-            status
+            status,
         })
     }
 
@@ -109,9 +117,9 @@ impl Pack for PoolHeader {
 impl IsInitialized for PoolHeader {
     fn is_initialized(&self) -> bool {
         if let PoolStatus::Uninitialized = self.status {
-            return false
+            return false;
         }
-        return true
+        return true;
     }
 }
 
@@ -119,7 +127,7 @@ impl Sealed for PoolAsset {}
 
 impl IsInitialized for PoolAsset {
     fn is_initialized(&self) -> bool {
-        self.mint_address != Pubkey::new(&[0u8;32])
+        self.mint_address != Pubkey::new(&[0u8; 32])
     }
 }
 
@@ -134,7 +142,7 @@ impl Pack for PoolAsset {
         }
 
         for i in 32..40 {
-            target[i] = amount_bytes[i-32]
+            target[i] = amount_bytes[i - 32]
         }
     }
 
@@ -143,44 +151,47 @@ impl Pack for PoolAsset {
         let amount_in_token = u64::from_le_bytes(src[32..40].try_into().unwrap());
         Ok(Self {
             mint_address,
-            amount_in_token
+            amount_in_token,
         })
     }
 }
 
-pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError>{
+pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError> {
     let number_of_assets = input.len() / PoolAsset::LEN;
     msg!("number_of_assets: {:?}", number_of_assets);
     let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
     let mut offset = 0;
-    for _ in 0..number_of_assets{
-        PoolAsset::unpack(&input[offset..offset + PoolAsset::LEN]).and_then(|asset| Ok(output.push(asset))).unwrap_or(());
+    for _ in 0..number_of_assets {
+        PoolAsset::unpack(&input[offset..offset + PoolAsset::LEN])
+            .and_then(|asset| Ok(output.push(asset)))
+            .unwrap_or(());
         offset += PoolAsset::LEN;
     }
     Ok(output)
 }
 
-pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, ProgramError>{
-    let offset = PoolHeader::LEN + index*PoolAsset::LEN;
+pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, ProgramError> {
+    let offset = PoolHeader::LEN + index * PoolAsset::LEN;
     input
-        .get(offset..offset+PoolAsset::LEN)
+        .get(offset..offset + PoolAsset::LEN)
         .ok_or(ProgramError::InvalidArgument)
         .and_then(|slice| PoolAsset::unpack_unchecked(slice))
 }
 
 pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<(), ProgramError> {
     let offset = PoolHeader::LEN + index * PoolAsset::LEN;
-    let slice = target.get_mut(offset..offset+PoolAsset::LEN).ok_or(ProgramError::InvalidArgument)?;
+    let slice = target
+        .get_mut(offset..offset + PoolAsset::LEN)
+        .ok_or(ProgramError::InvalidArgument)?;
     asset.pack_into_slice(slice);
     Ok(())
 }
-
 
 #[derive(Debug, PartialEq)]
 pub struct OrderTracker {
     pub side: Side,
     pub source_amount_per_token: u64,
-    pub pending_target_amount: u64
+    pub pending_target_amount: u64,
 }
 
 impl Sealed for OrderTracker {}
@@ -196,26 +207,26 @@ impl Pack for OrderTracker {
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         dst[0] = match self.side {
-            Side::Bid => {0}
-            Side::Ask => {1}
+            Side::Bid => 0,
+            Side::Ask => 1,
         };
 
         let source_amount_per_token_bytes = self.source_amount_per_token.to_le_bytes();
         let pending_target_amount_bytes = self.pending_target_amount.to_le_bytes();
 
         for i in 1..9 {
-            dst[i] = source_amount_per_token_bytes[i]
+            dst[i] = source_amount_per_token_bytes[i - 1]
         }
         for i in 9..17 {
-            dst[i] = pending_target_amount_bytes[i]
+            dst[i] = pending_target_amount_bytes[i - 9]
         }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let side = match src[0] {
-            0 => {Side::Bid}
-            1 => {Side::Ask}
-            _ => return Err(ProgramError::InvalidAccountData)
+            0 => Side::Bid,
+            1 => Side::Ask,
+            _ => return Err(ProgramError::InvalidAccountData),
         };
 
         let source_amount_per_token = src
@@ -227,46 +238,47 @@ impl Pack for OrderTracker {
             .get(9..17)
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
-        
-            Ok(Self{
-                side,
-                source_amount_per_token,
-                pending_target_amount
-            })
+
+        Ok(Self {
+            side,
+            source_amount_per_token,
+            pending_target_amount,
+        })
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU8;
 
-    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, OrderTracker};
+    use super::{unpack_assets, OrderTracker, PoolAsset, PoolHeader, PoolStatus};
     use serum_dex::matching::Side;
-    use solana_program::{program_pack::{Pack, IsInitialized}, pubkey::Pubkey};
+    use solana_program::{
+        program_pack::{IsInitialized, Pack},
+        pubkey::Pubkey,
+    };
 
     #[test]
     fn test_state_packing() {
         let header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
-            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap())
+            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
         };
 
         let header_size = PoolHeader::LEN;
         let mut state_array = [0u8; 113];
         header_state.pack_into_slice(&mut state_array[..header_size]);
 
-
         let pool_asset = PoolAsset {
             mint_address: Pubkey::new_unique(),
-            amount_in_token: 99
+            amount_in_token: 99,
         };
         let pool_asset_2 = PoolAsset {
             mint_address: Pubkey::new_unique(),
-            amount_in_token: 499
+            amount_in_token: 499,
         };
         pool_asset.pack_into_slice(&mut state_array[header_size..]);
-        pool_asset_2.pack_into_slice(&mut state_array[header_size+PoolAsset::LEN..]);
+        pool_asset_2.pack_into_slice(&mut state_array[header_size + PoolAsset::LEN..]);
 
         let unpacked_header = PoolHeader::unpack(&state_array[..PoolHeader::LEN]).unwrap();
         assert_eq!(unpacked_header, header_state);
@@ -277,30 +289,42 @@ mod tests {
     }
 
     #[test]
-    fn test_header_packing(){
+    fn test_header_packing() {
         let mut header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
-            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap())
+            status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
         };
-        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+        assert_eq!(
+            header_state,
+            PoolHeader::unpack(&get_packed(&header_state)).unwrap()
+        );
 
         header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
-            status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap())
+            status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap()),
         };
-        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+        assert_eq!(
+            header_state,
+            PoolHeader::unpack(&get_packed(&header_state)).unwrap()
+        );
 
         header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Locked,
         };
-        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+        assert_eq!(
+            header_state,
+            PoolHeader::unpack(&get_packed(&header_state)).unwrap()
+        );
 
         header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Unlocked,
         };
-        assert_eq!(header_state, PoolHeader::unpack(&get_packed(&header_state)).unwrap());
+        assert_eq!(
+            header_state,
+            PoolHeader::unpack(&get_packed(&header_state)).unwrap()
+        );
 
         header_state = PoolHeader {
             signal_provider: Pubkey::new_unique(),
@@ -310,31 +334,35 @@ mod tests {
     }
 
     #[test]
-    fn test_order_tracker_packing(){
+    fn test_order_tracker_packing() {
         let mut order_tracker = OrderTracker {
             side: Side::Ask,
             source_amount_per_token: 54,
-            pending_target_amount: 456
+            pending_target_amount: 456,
         };
-        assert_eq!(order_tracker, OrderTracker::unpack(&get_packed(&order_tracker)).unwrap());
+        assert_eq!(
+            order_tracker,
+            OrderTracker::unpack(&get_packed(&order_tracker)).unwrap()
+        );
 
         order_tracker.side = Side::Bid;
         order_tracker.source_amount_per_token = u64::MAX - 42;
         order_tracker.pending_target_amount = u64::MAX - 645;
-        assert_eq!(order_tracker, OrderTracker::unpack(&get_packed(&order_tracker)).unwrap());
-   
+        assert_eq!(
+            order_tracker,
+            OrderTracker::unpack(&get_packed(&order_tracker)).unwrap()
+        );
     }
 
-    fn get_packed<T: Pack>(obj: &T) -> Vec<u8>{
-        let mut output_vec= vec![0u8].repeat(T::LEN);
+    fn get_packed<T: Pack>(obj: &T) -> Vec<u8> {
+        let mut output_vec = vec![0u8].repeat(T::LEN);
         obj.pack_into_slice(&mut output_vec);
         output_vec
-
     }
 
     #[test]
     fn test_state_init() {
-        let pool_asset = PoolAsset::unpack_unchecked(&[0u8;PoolAsset::LEN]).unwrap();
+        let pool_asset = PoolAsset::unpack_unchecked(&[0u8; PoolAsset::LEN]).unwrap();
         assert!(!pool_asset.is_initialized());
     }
 }

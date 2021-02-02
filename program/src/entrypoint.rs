@@ -1,9 +1,8 @@
-use solana_program::{
-    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg,
-    program_error::PrintProgramError, pubkey::Pubkey,
-    decode_error::DecodeError
-};
 use num_traits::FromPrimitive;
+use solana_program::{
+    account_info::AccountInfo, decode_error::DecodeError, entrypoint, entrypoint::ProgramResult,
+    msg, program_error::PrintProgramError, pubkey::Pubkey,
+};
 
 use crate::{error::BonfidaBotError, processor::Processor};
 
@@ -30,7 +29,7 @@ impl PrintProgramError for BonfidaBotError {
     {
         match self {
             BonfidaBotError::InvalidInstruction => msg!("Error: Invalid instruction!"),
-            BonfidaBotError::Overflow => msg!("Error: Arithmetic operation overflow!")
+            BonfidaBotError::Overflow => msg!("Error: Arithmetic operation overflow!"),
         }
     }
 }
