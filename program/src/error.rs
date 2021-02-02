@@ -10,6 +10,8 @@ pub enum BonfidaBotError {
     InvalidInstruction,
     #[error("Arithmetic operation overflow")]
     Overflow,
+    #[error("Operation is locked in the current pool state")]
+    LockedOperation,
 }
 
 impl From<BonfidaBotError> for ProgramError {

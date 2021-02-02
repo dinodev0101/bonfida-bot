@@ -1,18 +1,13 @@
 #![cfg(feature = "test-bpf")]
-use arrayref::{array_mut_ref, mut_array_refs};
 use bonfida_bot::{
     entrypoint::process_instruction,
-    instruction::{create, deposit, init, init_order_tracker},
+    instruction::{create, deposit, init},
     state::FIDA_MINT_KEY,
 };
 use rand::Rng;
 use solana_program::{
-    account_info::AccountInfo,
-    entrypoint::ProgramResult,
     hash::Hash,
-    instruction::{Instruction, InstructionError},
-    msg,
-    program_error::ProgramError,
+    instruction::Instruction,
     program_pack::Pack,
     pubkey::Pubkey,
     rent::Rent,
@@ -20,13 +15,13 @@ use solana_program::{
 };
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
-    account::Account, keyed_account, signature::Keypair, signature::Signer, system_instruction,
+    account::Account, signature::Keypair, signature::Signer, system_instruction,
     transaction::Transaction,
 };
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{
     self,
-    instruction::{initialize_account, initialize_mint, mint_to},
+    instruction::{initialize_mint, mint_to},
     state::Mint,
 };
 use std::str::FromStr;

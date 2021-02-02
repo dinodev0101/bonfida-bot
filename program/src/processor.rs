@@ -1,8 +1,4 @@
-use std::{
-    cmp::min,
-    convert::TryInto,
-    num::{NonZeroU16, NonZeroU64, NonZeroU8},
-};
+use std::{cmp::min, convert::TryInto, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
 
 use crate::{
     error::BonfidaBotError,
@@ -370,13 +366,22 @@ impl Processor {
             msg!("Program should own pool account");
             return Err(ProgramError::InvalidArgument);
         }
-        if pool_header.status == PoolStatus::Locked {
-            msg!(
-                "Pool is currently locked by signal provider, \
-                no buy-ins are possible"
-            );
-            return Err(ProgramError::InvalidArgument);
-        }
+        match pool_header.status {
+            PoolStatus::Unlocked => {()}
+            _ => {
+                match pool_header.status {
+                    PoolStatus::Locked | PoolStatus::LockedPendingOrder(_) => {
+                        msg!("The signal provider has currently locked the pool. No buy-ins are possible for now.")
+                    }
+                    PoolStatus::PendingOrder(_) => {
+                        msg!("The pool has one or more pending orders. No buy-ins are possible for now. Try again later.")
+                    }
+                    _ => { unreachable!() }
+                };
+                return Err(BonfidaBotError::LockedOperation.into())
+            }
+
+        };
 
         // Compute buy-in amount. The effective buy-in amount can be less than the
         // input_token_amount as the source accounts need to satisfy the pool asset ratios
@@ -809,6 +814,32 @@ impl Processor {
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
+        
+        if (openorders_free_pc == openorders_total_pc) & (openorders_free_coin == openorders_total_coin) {
+            // This means the order can be entirely settled.
+            let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+            pool_header.status = match pool_header.status {
+                PoolStatus::PendingOrder(n) |
+                PoolStatus::LockedPendingOrder(n) => {
+                    if n.get() == 1{
+                        match pool_header.status {
+                            PoolStatus::PendingOrder(_) => {PoolStatus::Unlocked}
+                            PoolStatus::LockedPendingOrder(_) => {PoolStatus::Locked}
+                            _ => {unreachable!()}
+                        }
+                    } else {
+                        let pending_orders = NonZeroU8::new(n.get() - 1).unwrap();
+                        match pool_header.status {
+                            PoolStatus::PendingOrder(_) => {PoolStatus::PendingOrder(pending_orders)}
+                            PoolStatus::LockedPendingOrder(_) => {PoolStatus::LockedPendingOrder(pending_orders)}
+                            _ => {unreachable!()}
+                        }
+                    }
+                }
+                _ => { return Err(ProgramError::InvalidAccountData) }
+            }
+
+        }
 
         // TODO: Think about this attack vector when operations are too small to be picked up by this division
         let (free_source_amount, total_source_amount, free_target_amount) = match order_tracker.side
