@@ -880,5 +880,14 @@ mod test {
         let packed_redeem = original_redeem.pack();
         let unpacked_redeem = PoolInstruction::unpack(&packed_redeem).unwrap();
         assert_eq!(original_redeem, unpacked_redeem);
+        
+        let original_cancel_order = PoolInstruction::CancelOrder {
+            pool_seed: [50u8; 32],
+            side: Side::Ask,
+            order_id: 855464984
+        };
+        let packed_cancel_order = original_cancel_order.pack();
+        let unpacked_cancel_order = PoolInstruction::unpack(&packed_cancel_order).unwrap();
+        assert_eq!(original_cancel_order, unpacked_cancel_order);
     }
 }
