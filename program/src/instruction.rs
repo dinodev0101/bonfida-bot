@@ -108,7 +108,7 @@ pub enum PoolInstruction {
     ///   * Single owner
     ///    0. `[signer]` The signal provider account
     ///    1. `[writable]` The market account
-    ///    2. `[writable]` The payer pool token account
+    ///    2. `[writable]` The payer pool asset account
     ///    3. `[writable]` The relevant OpenOrders account
     ///    4. `[writable]` The relevant order state account
     ///    5. `[writable]` The Serum request queue
@@ -148,7 +148,7 @@ pub enum PoolInstruction {
     ///
     /// Accounts expected by this instruction:
     ///
-    ///    0. `[writable]` The market accpimt
+    ///    0. `[writable]` The market account
     ///    1. `[writable]` The pool's OpenOrders account
     ///    2. `[writable]` The relevant pool order tracker account
     ///    3. `[writable]` the pool account
@@ -576,6 +576,146 @@ pub fn deposit(
         program_id: *bonfidabot_program_id,
         accounts,
         data,
+    })
+}
+
+// Creates a `CreateOrder` instruction
+pub fn create_order(
+    bonfidabot_program_id: &Pubkey,
+    signal_provider: &Pubkey,
+    market: &Pubkey,
+    payer_pool_asset_account: &Pubkey,
+    openorders_account: &Pubkey,
+    order_state_account: &Pubkey,
+    serum_request_queue: &Pubkey,
+    pool_account: &Pubkey,
+    coin_vault: &Pubkey,
+    pc_vault: &Pubkey,
+    spl_token_program: &Pubkey,
+    dex_program:&Pubkey,
+    srm_referrer_account: Option<&Pubkey>,
+    pool_seed: [u8;32],
+    side: Side,
+    limit_price :NonZeroU64,
+    max_qty:NonZeroU16,
+    order_type: OrderType,
+    client_id:u64,
+    self_trade_behavior: SelfTradeBehavior
+) -> Result<Instruction, ProgramError> {
+    let data = PoolInstruction::CreateOrder {
+        pool_seed,
+        side,
+        limit_price,
+        max_qty,
+        order_type,
+        client_id,
+        self_trade_behavior
+    }.pack();
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*signal_provider, true),
+        AccountMeta::new(*market, false),
+        AccountMeta::new(*payer_pool_asset_account, false),
+        AccountMeta::new(*openorders_account, false),
+        AccountMeta::new(*order_state_account, false),
+        AccountMeta::new(*serum_request_queue, false),
+        AccountMeta::new(*pool_account, false),
+        AccountMeta::new(*coin_vault, false),
+        AccountMeta::new(*pc_vault, false),
+        AccountMeta::new_readonly(*spl_token_program, false),
+        AccountMeta::new_readonly(*dex_program, false)
+    ];
+    if let Some(key) = srm_referrer_account {
+        accounts.push(AccountMeta::new(*key, false));
+    }
+    Ok(Instruction {
+        program_id: *bonfidabot_program_id,
+        accounts,
+        data
+    })
+}
+
+// Creates a `CancelOrder` instruction
+pub fn cancel_order(
+    bonfidabot_program_id: &Pubkey,
+    signal_provider: &Pubkey,
+    market: &Pubkey,
+    openorders_account: &Pubkey,
+    serum_request_queue: &Pubkey,
+    pool_account: &Pubkey,
+    dex_program: &Pubkey,
+    pool_seed: [u8; 32],
+    side: Side,
+    order_id: u128
+) -> Result<Instruction, ProgramError>{
+    let data = PoolInstruction::CancelOrder {
+        pool_seed,
+        side,
+        order_id
+    }.pack();
+    let accounts = vec![
+        AccountMeta::new_readonly(*signal_provider, true),
+        AccountMeta::new_readonly(*market, false),
+        AccountMeta::new(*openorders_account, false),
+        AccountMeta::new(*serum_request_queue, false),
+        AccountMeta::new_readonly(*pool_account, false),
+        AccountMeta::new_readonly(*dex_program, false)
+    ];
+    Ok(Instruction {
+        program_id: *bonfidabot_program_id,
+        accounts,
+        data
+    })
+}
+
+// Creates a settle funds
+pub fn settle_funds(
+    bonfidabot_program_id: &Pubkey,
+    market: &Pubkey,
+    openorders_account: &Pubkey,
+    order_tracker: &Pubkey,
+    pool_account: &Pubkey,
+    pool_token_mint: &Pubkey,
+    coin_vault: &Pubkey,
+    pc_vault: &Pubkey,
+    pool_coin_wallet: &Pubkey,
+    pool_pc_wallet: &Pubkey,
+    vault_signer: &Pubkey,
+    spl_token_program: &Pubkey,
+    dex_program: &Pubkey,
+    referrer_pc_account: Option<&Pubkey>,
+    pool_seed: [u8; 32],
+    pc_index: u64,
+    coin_index: u64
+) -> Result<Instruction, ProgramError>{
+    let data = PoolInstruction::SettleFunds {
+        pool_seed,
+        pc_index,
+        coin_index
+    }.pack();
+
+    let mut accounts = vec![
+        AccountMeta::new(*market, false),
+        AccountMeta::new(*openorders_account, false),
+        AccountMeta::new(*order_tracker, false),
+        AccountMeta::new(*pool_account, false),
+        AccountMeta::new_readonly(*pool_token_mint, false),
+        AccountMeta::new(*coin_vault, false),
+        AccountMeta::new(*pc_vault, false),
+        AccountMeta::new(*pool_coin_wallet, false),
+        AccountMeta::new(*pool_pc_wallet, false),
+        AccountMeta::new_readonly(*vault_signer, false),
+        AccountMeta::new_readonly(*spl_token_program, false),
+        AccountMeta::new_readonly(*dex_program, false),
+    ];
+    if let Some(key) = referrer_pc_account {
+        accounts.push(
+            AccountMeta::new(*key, false)
+        )
+    }
+    Ok(Instruction {
+        program_id: *bonfidabot_program_id,
+        accounts,
+        data
     })
 }
 
