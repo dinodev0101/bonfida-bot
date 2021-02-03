@@ -28,9 +28,9 @@ pub enum PoolInstruction {
     ///   0. `[]` The system program account
     ///   1. `[]` The sysvar rent program account
     ///   2. `[]` The spl token program account
-    ///   3. `[]` The pool account
-    ///   4. `[]` The pooltoken mint account
-    ///   5. `[signer]` The fee payer account
+    ///   3. `[writable]` The pool account
+    ///   4. `[writable]` The pooltoken mint account
+    ///   5. `[writable, signer]` The fee payer account
     Init {
         // The seed used to derive the pool account
         pool_seed: [u8; 32],
@@ -48,9 +48,9 @@ pub enum PoolInstruction {
     ///   0. `[]` The system program account
     ///   1. `[]` The sysvar rent program account
     ///   2. `[]` The pool account
-    ///   3. `[]` The order tracking account
+    ///   3. `[writable]` The order tracking account
     ///   4. `[]` The open orders account
-    ///   5. `[signer]` The fee payer account
+    ///   5. `[writable, signer]` The fee payer account
     InitOrderTracker {
         // The seed of the pool account
         pool_seed: [u8; 32],
@@ -66,13 +66,13 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The spl-token program account
-    ///   1. `[]` The pooltoken mint account
-    ///   1. `[]` The target account that receives the pooltokens
-    ///   0. `[]` The pool account
-    ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
+    ///   1. `[writable]` The pooltoken mint account
+    ///   1. `[writable]` The target account that receives the pooltokens
+    ///   0. `[writable]` The pool account
+    ///   2..M+2. `[writable]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets in the pool account data.
     ///   M+3. `[signer]` The source owner account
-    ///   M+4..2M+4. `[]` The M token source token accounts in the same order as above
+    ///   M+4..2M+4. `[writable]` The M source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
         signal_provider_key: Pubkey,
@@ -88,13 +88,13 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The spl-token program account
-    ///   1. `[]` The pooltoken mint account
-    ///   1. `[]` The target account that receives the pooltokens
+    ///   1. `[writable]` The pooltoken mint account
+    ///   1. `[writable]` The target account that receives the pooltokens
     ///   1. `[]` The pool account
-    ///   2..M+2. `[]` The M pool (associated) token assets accounts in the order of the
+    ///   2..M+2. `[writable]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets in the pool account data.
     ///   M+3. `[signer]` The source owner account
-    ///   M+4..2M+4. `[]` The M token source token accounts in the same order as above
+    ///   M+4..2M+4. `[writable]` The M source token accounts in the same order as above
     Deposit {
         pool_seed: [u8; 32],
         // The amount of pool token the source wishes to buy
@@ -165,6 +165,26 @@ pub enum PoolInstruction {
         pool_seed: [u8; 32],
         pc_index: u64,
         coin_index: u64,
+    },
+    /// Buy out of the pool by redeeming pooltokens. 
+    /// This instruction needs to be executed after (and within the same transaction)
+    /// having settled on all possible open orders for the pool.
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   * Single owner
+    ///   0. `[]` The spl-token program account
+    ///   1. `[writable]` The pooltoken mint account
+    ///   2. `[signer]` The pooltoken source account owner
+    ///   3. `[writable]` The pooltoken source account
+    ///   4. `[]` The pool account
+    ///   5..M+5. `[writable]` The M pool (associated) token assets accounts in the order of the
+    ///      corresponding PoolAssets found in the pool account data.
+    ///   M+6..2M+6. `[writable]` The M target token accounts in the same order as above
+    Redeem {
+        pool_seed: [u8; 32],
+        // The amount of pool token the source wishes to redeem
+        pool_token_amount: u64,
     },
 }
 
@@ -331,6 +351,21 @@ impl PoolInstruction {
                     coin_index,
                 }
             }
+            7 => {
+                let pool_seed: [u8; 32] = rest
+                    .get(..32)
+                    .and_then(|slice| slice.try_into().ok())
+                    .unwrap();
+                let pool_token_amount = rest
+                    .get(32..40)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                Self::Redeem {
+                    pool_seed,
+                    pool_token_amount,
+                }
+            }
             _ => {
                 msg!("Unsupported tag");
                 return Err(InvalidInstruction.into());
@@ -436,6 +471,14 @@ impl PoolInstruction {
                 buf.extend_from_slice(&pc_index.to_le_bytes());
                 buf.extend_from_slice(&coin_index.to_le_bytes());
             }
+            Self::Redeem {
+                pool_seed,
+                pool_token_amount,
+            } => {
+                buf.push(7);
+                buf.extend_from_slice(pool_seed);
+                buf.extend_from_slice(&pool_token_amount.to_le_bytes());
+            }
         };
         buf
     }
@@ -461,7 +504,7 @@ pub fn init(
     let accounts = vec![
         AccountMeta::new_readonly(*system_program_id, false),
         AccountMeta::new_readonly(*rent_program_id, false),
-        AccountMeta::new(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*pool_key, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*payer_key, true),
@@ -488,8 +531,8 @@ pub fn init_order_tracker(
     let accounts = vec![
         AccountMeta::new_readonly(*system_program_id, false),
         AccountMeta::new_readonly(*rent_program_id, false),
-        AccountMeta::new(*pool_key, false),
-        AccountMeta::new_readonly(*order_tracker_key, false),
+        AccountMeta::new_readonly(*pool_key, false),
+        AccountMeta::new(*order_tracker_key, false),
         AccountMeta::new_readonly(*openorders_key, false),
         AccountMeta::new(*payer_key, true),
     ];
@@ -521,7 +564,7 @@ pub fn create(
     }
     .pack();
     let mut accounts = vec![
-        AccountMeta::new(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*target_pool_token_key, false),
         AccountMeta::new(*pool_key, false),
@@ -529,7 +572,7 @@ pub fn create(
     for pool_asset_key in pool_asset_keys.iter() {
         accounts.push(AccountMeta::new(*pool_asset_key, false))
     }
-    accounts.push(AccountMeta::new(*source_owner_key, true));
+    accounts.push(AccountMeta::new_readonly(*source_owner_key, true));
     for source_asset_key in source_asset_keys.iter() {
         accounts.push(AccountMeta::new(*source_asset_key, false))
     }
@@ -560,16 +603,56 @@ pub fn deposit(
     }
     .pack();
     let mut accounts = vec![
-        AccountMeta::new(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*target_pool_token_key, false),
-        AccountMeta::new(*pool_key, false),
+        AccountMeta::new_readonly(*pool_key, false),
+    ];
+    for pool_asset_key in pool_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*pool_asset_key, false))
+    }
+    accounts.push(AccountMeta::new_readonly(*source_owner, true));
+    for source_asset_key in source_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*source_asset_key, false))
+    }
+    Ok(Instruction {
+        program_id: *bonfidabot_program_id,
+        accounts,
+        data,
+    })
+}
+
+// Creates a `Redeem` instruction
+pub fn redeem(
+    spl_token_program_id: &Pubkey,
+    bonfidabot_program_id: &Pubkey,
+    mint_key: &Pubkey,
+    pool_key: &Pubkey,
+    pool_asset_keys: &Vec<Pubkey>,
+    source_pool_token_owner_key: &Pubkey,
+    source_pool_token_key: &Pubkey,
+    source_owner: &Pubkey,
+    target_asset_keys: &Vec<Pubkey>,
+    pool_seed: [u8; 32],
+    pool_token_amount: u64,
+) -> Result<Instruction, ProgramError> {
+    let data = PoolInstruction::Redeem {
+        pool_seed,
+        pool_token_amount,
+    }
+    .pack();
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new(*mint_key, false),
+        AccountMeta::new_readonly(*source_pool_token_owner_key, true),
+        AccountMeta::new(*source_pool_token_key, false),
+        AccountMeta::new_readonly(*pool_key, false),
     ];
     for pool_asset_key in pool_asset_keys.iter() {
         accounts.push(AccountMeta::new(*pool_asset_key, false))
     }
     accounts.push(AccountMeta::new(*source_owner, true));
-    for source_asset_key in source_asset_keys.iter() {
+    for source_asset_key in target_asset_keys.iter() {
         accounts.push(AccountMeta::new(*source_asset_key, false))
     }
     Ok(Instruction {
@@ -649,5 +732,13 @@ mod test {
         let packed_settle_order = original_settle_order.pack();
         let unpacked_settle_order = PoolInstruction::unpack(&packed_settle_order).unwrap();
         assert_eq!(original_settle_order, unpacked_settle_order);
+
+        let original_redeem = PoolInstruction::Redeem {
+            pool_seed: [50u8; 32],
+            pool_token_amount: 24 as u64,
+        };
+        let packed_redeem = original_redeem.pack();
+        let unpacked_redeem = PoolInstruction::unpack(&packed_redeem).unwrap();
+        assert_eq!(original_redeem, unpacked_redeem);
     }
 }

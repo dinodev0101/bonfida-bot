@@ -29,7 +29,7 @@ use solana_program::{
 };
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::{
-    instruction::{initialize_mint, mint_to, transfer},
+    instruction::{initialize_mint, mint_to, transfer, burn},
     state::Account,
     state::Mint,
 };
@@ -872,7 +872,7 @@ impl Processor {
 
         order_tracker.pending_target_amount =
             order_tracker.pending_target_amount - free_target_amount;
-        order_tracker.source_amount_per_token = (((u64::MAX - source_proportion_of_order) as u128)
+        order_tracker.source_amount_per_token = (((std::u64::MAX - source_proportion_of_order) as u128)
             .checked_mul(order_tracker.source_amount_per_token as u128)
             .ok_or(BonfidaBotError::Overflow)?
             >> 64) as u64;
@@ -983,6 +983,117 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_redeem(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        pool_seed: [u8; 32],
+        // The amount of pooltokens wished to be redeemed
+        pool_token_amount: u64,
+    ) -> ProgramResult {
+        let accounts_iter = &mut accounts.iter();
+
+        let spl_token_account = next_account_info(accounts_iter)?;
+        let mint_account = next_account_info(accounts_iter)?;
+        let source_pool_token_owner_account = next_account_info(accounts_iter)?;
+        let source_pool_token_account = next_account_info(accounts_iter)?;
+        let pool_account = next_account_info(accounts_iter)?;
+
+        let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+        let nb_assets = pool_assets.len();
+
+        let mut pool_assets_accounts: Vec<&AccountInfo> = vec![];
+        let mut target_assets_accounts: Vec<&AccountInfo> = vec![];
+        for _ in 0..nb_assets {
+            pool_assets_accounts.push(next_account_info(accounts_iter)?)
+        }
+        for _ in 0..nb_assets {
+            target_assets_accounts.push(next_account_info(accounts_iter)?)
+        }
+
+        // Safety verifications
+        check_pool_key(&program_id, &pool_account.key, &pool_seed)?;
+        let pool_mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        if pool_mint_key != *mint_account.key {
+            msg!("Provided mint account is invalid");
+            return Err(ProgramError::InvalidArgument);
+        }
+        if !source_pool_token_owner_account.is_signer {
+            msg!("Source pooltoken account owner should be a signer.");
+            return Err(ProgramError::InvalidArgument);
+        }
+        if *pool_account.owner != *program_id {
+            msg!("Program should own pool account");
+            return Err(ProgramError::InvalidArgument);
+        }
+        match pool_header.status {
+            PoolStatus::PendingOrder(_) | PoolStatus::LockedPendingOrder(_) => {
+                msg!("The pool has one or more pending orders. No buy-outs are possible for now. Try again later.");
+                return Err(BonfidaBotError::LockedOperation.into())
+            },
+            _ => {()}
+        };
+        
+        // Execute buy out
+        for i in 0..nb_assets {
+            let pool_asset_key =
+            get_associated_token_address(&pool_account.key, &pool_assets[i].mint_address);
+            
+            if pool_asset_key != *pool_assets_accounts[i as usize].key {
+                msg!("Provided pool asset account is invalid");
+                return Err(ProgramError::InvalidArgument);
+            }
+            
+            let amount = pool_token_amount
+            .checked_mul(pool_assets[i].amount_in_token)
+            .ok_or(BonfidaBotError::Overflow)?;
+            if amount == 0 {
+                break;
+            }
+            let instruction = transfer(
+                spl_token_account.key,
+                pool_assets_accounts[i].key,
+                target_assets_accounts[i].key,
+                pool_account.key,
+                &[],
+                amount,
+            )?;
+            invoke(
+                &instruction,
+                &[
+                    pool_assets_accounts[i].clone(),
+                    target_assets_accounts[i].clone(),
+                    spl_token_account.clone(),
+                    pool_account.clone(),
+                    ],
+                )?;
+            }
+
+        // Burn the redeemed pooltokens
+        let instruction = burn(
+            spl_token_account.key,
+            &source_pool_token_account.key,
+            mint_account.key,
+            &pool_account.key,
+            &[],
+            pool_token_amount,
+        )?;
+
+        invoke_signed(
+            &instruction,
+            &[
+                spl_token_account.clone(),
+                source_pool_token_account.clone(),
+                mint_account.clone(),
+                source_pool_token_owner_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        
+        Ok(())
+    }
+
     pub fn process_instruction(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -1069,6 +1180,13 @@ impl Processor {
             } => {
                 msg!("Instruction: Cancel Order for Pool");
                 Self::process_cancel(program_id, accounts, pool_seed, side, order_id)
+            }
+            PoolInstruction::Redeem {
+                pool_seed,
+                pool_token_amount,
+            } => {
+                msg!("Instruction: Redeem out of Pool");
+                Self::process_redeem(program_id, accounts, pool_seed, pool_token_amount)
             }
         }
     }
