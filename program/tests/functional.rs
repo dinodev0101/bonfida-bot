@@ -5,8 +5,8 @@ use bonfida_bot::{
     state::FIDA_MINT_KEY,
 };
 use rand::{Rng, rngs::OsRng};
-use serum_dex::{instruction::SelfTradeBehavior, matching::Side, state::gen_vault_signer_key};
-use solana_program::{hash::Hash, instruction::Instruction, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
+use serum_dex::{instruction::SelfTradeBehavior, matching::Side, state::{account_parser::TokenAccount, gen_vault_signer_key}};
+use solana_program::{hash::Hash, instruction::Instruction, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
     account::Account, signature::Keypair, signature::Signer, system_instruction,
@@ -53,7 +53,7 @@ async fn test_bonfida_bot() {
         },
     );
     let asset_mint_authority = Keypair::new();
-    let mut data = [0; Mint::LEN];
+    let mut fida_mint_data = [0; Mint::LEN];
     Mint {
         mint_authority: Some(asset_mint_authority.pubkey()).into(),
         supply: u32::MAX.into(),
@@ -61,12 +61,55 @@ async fn test_bonfida_bot() {
         is_initialized: true,
         freeze_authority: None.into(),
     }
-    .pack_into_slice(&mut data);
+    .pack_into_slice(&mut fida_mint_data);
     program_test.add_account(
         Pubkey::from_str(FIDA_MINT_KEY).unwrap(),
         Account {
             lamports: u32::MAX.into(),
-            data: data.into(),
+            data: fida_mint_data.into(),
+            owner: spl_token::id(),
+            executable: false,
+            ..Account::default()
+        },
+    );
+    let mut serum_mint_data = [0; Mint::LEN];
+    Mint {
+        mint_authority: Some(asset_mint_authority.pubkey()).into(),
+        supply: u32::MAX.into(),
+        decimals: 6,
+        is_initialized: true,
+        freeze_authority: None.into(),
+    }
+    .pack_into_slice(&mut serum_mint_data);
+    let srm_mint = Pubkey::new_unique();
+    program_test.add_account(
+        srm_mint,
+        Account {
+            lamports: u32::MAX.into(),
+            data: serum_mint_data.into(),
+            owner: spl_token::id(),
+            executable: false,
+            ..Account::default()
+        },
+    );
+    let mut token_data = [0; spl_token::state::Account::LEN];
+    spl_token::state::Account {
+        mint: Pubkey::from_str("SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt").unwrap(),
+        owner: Pubkey::new_unique(),
+        amount: u32::MAX.into(),
+        delegate: COption::None,
+        state: spl_token::state::AccountState::Initialized,
+        is_native: COption::None,
+        delegated_amount: 0,
+        close_authority: COption::None,
+    }
+    .pack_into_slice(&mut token_data);
+    let srm_receiver = Pubkey::new_unique();
+    program_test.add_account(
+        srm_receiver,
+        Account {
+            lamports: u32::MAX.into(),
+            data: token_data.into(),
             owner: spl_token::id(),
             executable: false,
             ..Account::default()
@@ -75,12 +118,11 @@ async fn test_bonfida_bot() {
 
     // Load The Serum Dex program
     program_test.add_program(
-        "Serum Dex",
+        "serum_dex",
         serum_program_id,
         processor!(|a, b, c| { Ok(serum_dex::state::State::process(a, b, c)?) }),
     );
     
-
     // Start and process transactions on the test network
     let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
 
@@ -104,7 +146,7 @@ async fn test_bonfida_bot() {
     ))
     .await
     .unwrap();
-    let (serum_market, market_instructions) = SerumMarket::initialize_market(
+    let serum_market = SerumMarket::initialize_market_accounts(
         &serum_program_id,
         &payer,
         &coin_mint,
@@ -112,14 +154,7 @@ async fn test_bonfida_bot() {
         recent_blockhash,
         &banks_client
     ).await.unwrap();
-    wrap_process_transaction(
-        market_instructions,
-        &payer,
-        vec![],
-        &recent_blockhash,
-        &banks_client,
-    )
-    .await;
+
 
     // Initialize the pool
     let init_instruction = init(
@@ -321,6 +356,57 @@ async fn test_bonfida_bot() {
         &banks_client,
     )
     .await;
+
+    // Execute a CreateOrder instruction that matches the previous order
+    let create_matching_order_instruction = create_order(
+        &program_id, 
+        &signal_provider.pubkey(), 
+        &serum_market.market_key.pubkey(), 
+        &pool_asset_keys[1], 
+        &open_order.pubkey(), 
+        &order_tracker_key, 
+        &serum_market.req_q_key.pubkey(),
+        &pool_key, 
+        &serum_market.coin_vault, 
+        &serum_market.pc_vault, 
+        &spl_token::id(), 
+        &serum_program_id, 
+        None, 
+        pool_seeds, 
+        Side::Bid, 
+        NonZeroU64::new(1).unwrap(), 
+        NonZeroU16::new(10).unwrap(), 
+        serum_dex::matching::OrderType::Limit,
+        0, 
+        SelfTradeBehavior::DecrementTake,
+    ).unwrap();
+    wrap_process_transaction(
+        vec![create_matching_order_instruction],
+        &payer,
+        vec![&signal_provider],
+        &recent_blockhash,
+        &banks_client,
+    )
+    .await;
+
+    // Crank the Serum matching
+    let consume_instruction = serum_dex::instruction::consume_events(
+        &serum_program_id,
+        vec![&open_order.pubkey()],
+        &serum_market.market_key.pubkey(),
+        &serum_market.event_q_key.pubkey(),
+        &srm_receiver,
+        &srm_receiver,
+        1
+    ).unwrap();
+    wrap_process_transaction(
+        vec![consume_instruction],
+        &payer,
+        vec![],
+        &recent_blockhash,
+        &banks_client,
+    )
+    .await;
 }
 
 fn mint_init_transaction(
@@ -393,15 +479,16 @@ struct SerumMarket {
 
 impl SerumMarket {
 
-    async fn initialize_market(
+    async fn initialize_market_accounts(
         serum_program_id: &Pubkey,
         payer: &Keypair,
         coin_mint: &Keypair,
         pc_mint: &Keypair,
         recent_blockhash: Hash,
         banks_client: &BanksClient
-    ) -> Result<(Self, Vec<Instruction>), ProgramError> {
-        let (market_key, create_market) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 376)?;
+    ) -> Result<Self, ProgramError> {
+        println!("--- Creating Market accounts ---");
+        let (market_key, create_market) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 384)?;
         let (req_q_key, create_req_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 640)?;
         let (event_q_key, create_event_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 1 << 20)?;
         let (bids_key, create_bids) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 1 << 16)?;
@@ -416,6 +503,28 @@ impl SerumMarket {
                 i += 1;
             }
         };
+        let create_instructions = vec![
+            create_market,
+            create_req_q,
+            create_event_q,
+            create_bids,
+            create_asks,
+        ];
+        let keys = vec![
+            &market_key,
+            &req_q_key,
+            &event_q_key,
+            &bids_key,
+            &asks_key,
+        ];
+        wrap_process_transaction(
+            create_instructions,
+            &payer,
+            keys,
+            &recent_blockhash,
+            &banks_client,
+        )
+        .await;
 
         let coin_vault = Keypair::new();
         let pc_vault = Keypair::new();
@@ -435,7 +544,8 @@ impl SerumMarket {
             &vault_signer_pk
         );
         banks_client.to_owned().process_transaction(create_pc_vault).await.unwrap();
-    
+        
+        println!("--- Initializing Market ---");
         let init_market_instruction = serum_dex::instruction::initialize_market(
             &market_key.pubkey(),
             serum_program_id,
@@ -463,15 +573,16 @@ impl SerumMarket {
             coin_vault: coin_vault.pubkey(),
             pc_vault: pc_vault.pubkey()
         };
-        let instructions = vec![
-            create_market,
-            create_req_q,
-            create_event_q,
-            create_bids,
-            create_asks,
-            init_market_instruction
-        ];
-        Ok((info, instructions))
+        wrap_process_transaction(
+            vec![init_market_instruction],
+            &payer,
+            vec![],
+            &recent_blockhash,
+            &banks_client,
+        )
+        .await;
+
+        Ok(info)
     }
     
     pub fn create_dex_account(
@@ -489,14 +600,7 @@ impl SerumMarket {
             serum_program_id,
         );
         Ok((key, create_account_instr))
-        //TODO pass keys to caller, sign with it
     }
-
-    // pub fn consume_events(
-
-    // ) -> {
-
-    // }
 } 
 
 fn create_token_account(
