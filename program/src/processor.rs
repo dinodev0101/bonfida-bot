@@ -147,7 +147,7 @@ impl Processor {
         }
 
         // Find the non reversible public key for the pool mint account via the seed
-        let (order_tracker_key, _) = Pubkey::find_program_address(
+        let (order_tracker_key, bump) = Pubkey::find_program_address(
             &[&pool_seed, &openorders_account.key.to_bytes()],
             program_id,
         );
@@ -171,7 +171,7 @@ impl Processor {
                 payer_account.clone(),
                 order_tracker_account.clone(),
             ],
-            &[&[&pool_seed]],
+            &[&[&pool_seed, &openorders_account.key.to_bytes(), &[bump]]],
         )?;
 
         Ok(())
@@ -506,7 +506,10 @@ impl Processor {
 
         check_open_orders_account(openorders_account, pool_account.key)?;
 
-        let source_account = Account::unpack(&pool_asset_token_account.data.borrow())?;
+        let source_account = Account::unpack(&pool_asset_token_account.data.borrow()).or_else(|e|{
+            msg!("Invalid pool asset token account provided");
+            Err(e)
+        })?;
         let source_token_account_key =
             get_associated_token_address(pool_account.key, &source_account.mint);
 
@@ -515,7 +518,9 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        msg!("Check 1");
+
+        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         if !signal_provider_account.is_signer {
             msg!("The signal provider's signature is required.");
             return Err(ProgramError::MissingRequiredSignature);
@@ -524,6 +529,7 @@ impl Processor {
             msg!("A wrong signal provider account was provided.");
             return Err(ProgramError::MissingRequiredSignature);
         }
+        msg!("Check 2");
         match pool_header.status {
             PoolStatus::Uninitialized => return Err(ProgramError::UninitializedAccount),
             PoolStatus::Unlocked => {
@@ -549,6 +555,8 @@ impl Processor {
                 }
             }
         };
+
+
 
         let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
         let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
@@ -586,6 +594,10 @@ impl Processor {
                 target_index,
             )?;
         }
+
+
+
+        msg!("Check 3");
 
         if source_asset.mint_address
             != match side {
@@ -660,6 +672,10 @@ impl Processor {
             client_id,
             self_trade_behavior,
         )?;
+
+
+
+        msg!("Check 4");
 
         let mut account_infos = vec![
             market.clone(),
@@ -1143,6 +1159,8 @@ impl Processor {
                 order_type,
                 client_id,
                 self_trade_behavior,
+                source_index,
+                target_index
             } => {
                 msg!("Instruction: Create Order for Pool");
                 Self::process_create_order(
@@ -1155,8 +1173,8 @@ impl Processor {
                     order_type,
                     client_id,
                     self_trade_behavior,
-                    0,
-                    0,
+                    source_index as usize,
+                    target_index as usize,
                 )
             }
             PoolInstruction::SettleFunds {

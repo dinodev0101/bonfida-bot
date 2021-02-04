@@ -110,7 +110,7 @@ pub enum PoolInstruction {
     ///    1. `[writable]` The market account
     ///    2. `[writable]` The payer pool asset account
     ///    3. `[writable]` The relevant OpenOrders account
-    ///    4. `[writable]` The relevant order state account
+    ///    4. `[writable]` The relevant order tracker account
     ///    5. `[writable]` The Serum request queue
     ///    6. `[writable]` The pool account
     ///    7. `[writable]` The coin vault
@@ -127,6 +127,8 @@ pub enum PoolInstruction {
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
+        source_index: u64,
+        target_index: u64
     },
     /// As a signal provider, cancel a serum order for the pool.
     ///
@@ -298,6 +300,16 @@ impl PoolInstruction {
                     1 => SelfTradeBehavior::CancelProvide,
                     _ => return Err(InvalidInstruction.into()),
                 };
+                let source_index = rest
+                    .get(53..61)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let target_index = rest
+                    .get(61..69)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
                 Self::CreateOrder {
                     pool_seed,
                     side,
@@ -306,6 +318,8 @@ impl PoolInstruction {
                     order_type,
                     client_id,
                     self_trade_behavior,
+                    source_index,
+                    target_index
                 }
             }
             5 => {
@@ -416,6 +430,8 @@ impl PoolInstruction {
                 order_type,
                 client_id,
                 self_trade_behavior,
+                source_index,
+                target_index,
             } => {
                 buf.push(4);
                 buf.extend_from_slice(pool_seed);
@@ -444,6 +460,8 @@ impl PoolInstruction {
                     }
                     .to_le_bytes(),
                 );
+                buf.extend_from_slice(&source_index.to_le_bytes());
+                buf.extend_from_slice(&target_index.to_le_bytes());
             }
             Self::CancelOrder {
                 pool_seed,
@@ -668,14 +686,17 @@ pub fn create_order(
     signal_provider: &Pubkey,
     market: &Pubkey,
     payer_pool_asset_account: &Pubkey,
+    payer_pool_asset_index: u64,
+    target_pool_asset_index: u64,
     openorders_account: &Pubkey,
-    order_state_account: &Pubkey,
+    order_tracker_account: &Pubkey,
     serum_request_queue: &Pubkey,
     pool_account: &Pubkey,
     coin_vault: &Pubkey,
     pc_vault: &Pubkey,
     spl_token_program: &Pubkey,
     dex_program:&Pubkey,
+    rent_sysvar: &Pubkey,
     srm_referrer_account: Option<&Pubkey>,
     pool_seed: [u8;32],
     side: Side,
@@ -692,19 +713,22 @@ pub fn create_order(
         max_qty,
         order_type,
         client_id,
-        self_trade_behavior
+        self_trade_behavior,
+        source_index: payer_pool_asset_index,
+        target_index: target_pool_asset_index
     }.pack();
     let mut accounts = vec![
         AccountMeta::new_readonly(*signal_provider, true),
         AccountMeta::new(*market, false),
         AccountMeta::new(*payer_pool_asset_account, false),
         AccountMeta::new(*openorders_account, false),
-        AccountMeta::new(*order_state_account, false),
+        AccountMeta::new(*order_tracker_account, false),
         AccountMeta::new(*serum_request_queue, false),
         AccountMeta::new(*pool_account, false),
         AccountMeta::new(*coin_vault, false),
         AccountMeta::new(*pc_vault, false),
         AccountMeta::new_readonly(*spl_token_program, false),
+        AccountMeta::new_readonly(*rent_sysvar, false),
         AccountMeta::new_readonly(*dex_program, false)
     ];
     if let Some(key) = srm_referrer_account {
@@ -858,6 +882,8 @@ mod test {
             order_type: OrderType::Limit,
             client_id: 0xff44,
             self_trade_behavior: SelfTradeBehavior::DecrementTake,
+            source_index: 42,
+            target_index: 78
         };
         let packed_create_order = original_create_order.pack();
         let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();

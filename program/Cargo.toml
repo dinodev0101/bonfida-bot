@@ -23,7 +23,7 @@ num-traits = "0.2"
 num-derive = "0.3"
 arrayref = "0.3.6"
 spl-token = {version = "3.0.1", features = ["no-entrypoint"]}
-serum_dex = {git = "https://github.com/project-serum/serum-dex.git", features = ["no-entrypoint"]}
+serum_dex = {path = "../../serum-dex/dex/", features = ["no-entrypoint"]}
 spl-associated-token-account = {version = "1.0.2", features = ["no-entrypoint"]}
 # arbitrary = { version = "0.4", features = ["derive"], optional = true }
 # honggfuzz = { version = "0.5", optional = true }

@@ -7,7 +7,7 @@ use bonfida_bot::{
 use rand::{Rng, rngs::OsRng};
 use serum_dex::{instruction::SelfTradeBehavior, matching::Side, state::{account_parser::TokenAccount, gen_vault_signer_key}};
 use solana_program::{hash::Hash, instruction::Instruction, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
-use solana_program_test::{processor, BanksClient, ProgramTest};
+use solana_program_test::{BanksClient, ProgramTest, find_file, processor, read_file};
 use solana_sdk::{
     account::Account, signature::Keypair, signature::Signer, system_instruction,
     transaction::Transaction,
@@ -117,10 +117,15 @@ async fn test_bonfida_bot() {
     );
 
     // Load The Serum Dex program
-    program_test.add_program(
-        "serum_dex",
+    program_test.add_account(
         serum_program_id,
-        processor!(|a, b, c| { Ok(serum_dex::state::State::process(a, b, c)?) }),
+        Account {
+            lamports: u32::MAX.into(),
+            data: read_file(find_file("serum_dex.so").unwrap()),
+            owner: solana_program::bpf_loader_deprecated::id(),
+            executable: true,
+            ..Account::default()
+        }
     );
     
     // Start and process transactions on the test network
@@ -331,6 +336,8 @@ async fn test_bonfida_bot() {
         &signal_provider.pubkey(), 
         &serum_market.market_key.pubkey(), 
         &pool_asset_keys[1], 
+        1,
+        2,
         &open_order.pubkey(), 
         &order_tracker_key, 
         &serum_market.req_q_key.pubkey(),
@@ -339,6 +346,7 @@ async fn test_bonfida_bot() {
         &serum_market.pc_vault, 
         &spl_token::id(), 
         &serum_program_id, 
+        &sysvar::rent::id(),
         None, 
         pool_seeds, 
         Side::Bid, 
@@ -357,37 +365,40 @@ async fn test_bonfida_bot() {
     )
     .await;
 
-    // Execute a CreateOrder instruction that matches the previous order
-    let create_matching_order_instruction = create_order(
-        &program_id, 
-        &signal_provider.pubkey(), 
-        &serum_market.market_key.pubkey(), 
-        &pool_asset_keys[1], 
-        &open_order.pubkey(), 
-        &order_tracker_key, 
-        &serum_market.req_q_key.pubkey(),
-        &pool_key, 
-        &serum_market.coin_vault, 
-        &serum_market.pc_vault, 
-        &spl_token::id(), 
-        &serum_program_id, 
-        None, 
-        pool_seeds, 
-        Side::Bid, 
-        NonZeroU64::new(1).unwrap(), 
-        NonZeroU16::new(10).unwrap(), 
-        serum_dex::matching::OrderType::Limit,
-        0, 
-        SelfTradeBehavior::DecrementTake,
-    ).unwrap();
-    wrap_process_transaction(
-        vec![create_matching_order_instruction],
-        &payer,
-        vec![&signal_provider],
-        &recent_blockhash,
-        &banks_client,
-    )
-    .await;
+    // // Execute a CreateOrder instruction that matches the previous order
+    // let create_matching_order_instruction = create_order(
+    //     &program_id, 
+    //     &signal_provider.pubkey(), 
+    //     &serum_market.market_key.pubkey(), 
+    //     &pool_asset_keys[1], 
+    //     0,
+    //     0,
+    //     &open_order.pubkey(), 
+    //     &order_tracker_key, 
+    //     &serum_market.req_q_key.pubkey(),
+    //     &pool_key, 
+    //     &serum_market.coin_vault, 
+    //     &serum_market.pc_vault, 
+    //     &spl_token::id(), 
+    //     &serum_program_id, 
+    //     &sysvar::rent::id(),
+    //     None, 
+    //     pool_seeds, 
+    //     Side::Bid, 
+    //     NonZeroU64::new(1).unwrap(), 
+    //     NonZeroU16::new(10).unwrap(), 
+    //     serum_dex::matching::OrderType::Limit,
+    //     0, 
+    //     SelfTradeBehavior::DecrementTake,
+    // ).unwrap();
+    // wrap_process_transaction(
+    //     vec![create_matching_order_instruction],
+    //     &payer,
+    //     vec![&signal_provider],
+    //     &recent_blockhash,
+    //     &banks_client,
+    // )
+    // .await;
 
     // Crank the Serum matching
     let consume_instruction = serum_dex::instruction::consume_events(
@@ -488,7 +499,7 @@ impl SerumMarket {
         banks_client: &BanksClient
     ) -> Result<Self, ProgramError> {
         println!("--- Creating Market accounts ---");
-        let (market_key, create_market) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 384)?;
+        let (market_key, create_market) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 376)?;
         let (req_q_key, create_req_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 640)?;
         let (event_q_key, create_event_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 1 << 20)?;
         let (bids_key, create_bids) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 1 << 16)?;

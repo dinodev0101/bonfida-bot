@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, msg, program_error::ProgramError,
     pubkey::Pubkey,
@@ -21,7 +23,18 @@ pub fn check_open_orders_account(
     pool_key: &Pubkey,
 ) -> ProgramResult {
     // TODO: Check offsets
-    let owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
+    let account_flags = openorders_account.data.borrow()
+        .get(5..13)
+        .and_then(|slice| slice.try_into().ok())
+        .map(u64::from_le_bytes);
+    if account_flags.is_none() {
+        msg!("Failed to parse openorders account flags");
+    }
+    if account_flags == Some(0) {
+        // Open Orders account is uninitialized
+        return Ok(())
+    }
+    let owner = Pubkey::new(&openorders_account.data.borrow()[45..77]);
     if &owner != pool_key {
         msg!("The pool account should own the open orders account");
         return Err(ProgramError::InvalidArgument);
