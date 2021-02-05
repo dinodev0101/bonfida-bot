@@ -161,7 +161,7 @@ impl Processor {
             &order_tracker_key,
             rent.minimum_balance(OrderTracker::LEN),
             OrderTracker::LEN as u64,
-            &pool_key,
+            &program_id,
         );
 
         invoke_signed(
@@ -463,7 +463,7 @@ impl Processor {
         pool_seed: [u8; 32],
         side: Side,
         limit_price: NonZeroU64,
-        max_qty: NonZeroU16,
+        max_ratio_of_pool_to_sell_to_another_fellow_trader: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
@@ -518,8 +518,6 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        msg!("Check 1");
-
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         if !signal_provider_account.is_signer {
             msg!("The signal provider's signature is required.");
@@ -529,7 +527,6 @@ impl Processor {
             msg!("A wrong signal provider account was provided.");
             return Err(ProgramError::MissingRequiredSignature);
         }
-        msg!("Check 2");
         match pool_header.status {
             PoolStatus::Uninitialized => return Err(ProgramError::UninitializedAccount),
             PoolStatus::Unlocked => {
@@ -595,10 +592,6 @@ impl Processor {
             )?;
         }
 
-
-
-        msg!("Check 3");
-
         if source_asset.mint_address
             != match side {
                 Side::Bid => pc_mint,
@@ -612,7 +605,7 @@ impl Processor {
         let cast_value: u128 = source_asset.amount_in_token.into();
 
         let amount_to_trade_in_token = (cast_value
-            .checked_mul(max_qty.get().into())
+            .checked_mul(max_ratio_of_pool_to_sell_to_another_fellow_trader.get().into())
             .ok_or(BonfidaBotError::Overflow)?
             >> 16) as u64;
 
@@ -672,8 +665,6 @@ impl Processor {
             client_id,
             self_trade_behavior,
         )?;
-
-        msg!("Check 4");
 
         let mut account_infos = vec![
             market.clone(),

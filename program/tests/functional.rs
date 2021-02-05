@@ -301,10 +301,10 @@ async fn test_bonfida_bot() {
     .await;
 
     // Execute a Init Order Tracker instruction
-    let (open_order, create_order_tracker_instruction) = SerumMarket::create_dex_account(
+    let (open_order, create_open_order_instruction) = SerumMarket::create_dex_account(
         &serum_program_id, 
         &payer.pubkey(), 
-        2184).unwrap();
+        3216).unwrap();
         let (order_tracker_key, _) = Pubkey::find_program_address(
             &[&pool_seeds, &open_order.pubkey().to_bytes()],
         &program_id,
@@ -321,7 +321,7 @@ async fn test_bonfida_bot() {
     ).unwrap();
 
     wrap_process_transaction(
-        vec![create_order_tracker_instruction, init_tracker_instruction],
+        vec![create_open_order_instruction, init_tracker_instruction],
         &payer,
         vec![&open_order],
         &recent_blockhash,
@@ -350,9 +350,9 @@ async fn test_bonfida_bot() {
         pool_seeds, 
         Side::Bid, 
         NonZeroU64::new(1).unwrap(), 
-        NonZeroU16::new(10).unwrap(), 
+        NonZeroU16::new(1<<15).unwrap(),
         serum_dex::matching::OrderType::Limit,
-        0, 
+        0,
         SelfTradeBehavior::DecrementTake,
     ).unwrap();
     wrap_process_transaction(
@@ -361,9 +361,23 @@ async fn test_bonfida_bot() {
         vec![&signal_provider],
         &recent_blockhash,
         &banks_client,
-    )
-    .await;
-
+    ).await;
+    let matching_amount_token = spl_token::state::Account::unpack(
+        &banks_client.get_account(pool_asset_keys[1]).await.unwrap().unwrap().data
+    ).unwrap().amount;
+    let lots_to_trade = serum_market.coin_lot_size * matching_amount_token / (serum_market.pc_lot_size * 1); // 1 is price
+    serum_market.match_and_crank_order(
+        &serum_program_id,
+        &payer,
+        recent_blockhash,
+        &banks_client,
+        Side::Bid,
+        NonZeroU64::new(1).unwrap(), 
+        NonZeroU64::new(lots_to_trade).unwrap(),
+        0,
+        SelfTradeBehavior::DecrementTake,
+        &srm_receiver
+    ).await;
 
 }
 
@@ -429,6 +443,8 @@ struct SerumMarket {
     event_q_key: Keypair,
     bids_key: Keypair,
     asks_key: Keypair,
+    coin_lot_size: u64,
+    pc_lot_size: u64,
     vault_signer_pk: Pubkey,
     vault_signer_nonce: u64,
     coin_vault: Pubkey,
@@ -524,6 +540,8 @@ impl SerumMarket {
             event_q_key,
             bids_key,
             asks_key,
+            coin_lot_size: 1000,
+            pc_lot_size: 1,
             vault_signer_pk,
             vault_signer_nonce,
             coin_vault: coin_vault.pubkey(),
@@ -568,11 +586,11 @@ impl SerumMarket {
         limit_price: NonZeroU64,
         max_qty: NonZeroU64,
         client_id: u64,
-        self_trade_behavior: SelfTradeBehavior
-    ) -> ProgramResult {
-
+        self_trade_behavior: SelfTradeBehavior,
+        srm_receiver: &Pubkey
+    ) {
         let (matching_open_order, create_matching_order_tracker_instruction) = SerumMarket::create_dex_account(
-            &serum_program_id, 
+            &serum_program_id,
             &payer.pubkey(), 
             2184
         ).unwrap();
@@ -585,18 +603,21 @@ impl SerumMarket {
         ).await;
 
         let matching_instruction = serum_dex::instruction::new_order(
-            &self.market_key.pubkey(), 
+            &self.market_key.pubkey(),
             &matching_open_order.pubkey(), 
             &self.req_q_key.pubkey(),
             &payer.pubkey(),
-            &matching_open_order.pubkey(), 
-            &self.coin_vault, 
-            &self.pc_vault, 
-            &spl_token::id(), 
-            &sysvar::rent::id(), 
-            None, 
+            &matching_open_order.pubkey(),
+            &self.coin_vault,
+            &self.pc_vault,
+            &spl_token::id(),
+            &sysvar::rent::id(),
+            None,
             &serum_program_id,
-            Side::from(1 - side.into()),
+            match side {
+                Side::Ask => Side::Bid,
+                Side::Bid => Side::Ask
+            },
             limit_price,
             max_qty,
             OrderType::Limit,
@@ -608,10 +629,10 @@ impl SerumMarket {
         let consume_instruction = serum_dex::instruction::consume_events(
             &serum_program_id,
             vec![&matching_open_order.pubkey()],
-            &serum_market.market_key.pubkey(),
-            &serum_market.event_q_key.pubkey(),
-            &srm_receiver,
-            &srm_receiver,
+            &self.market_key.pubkey(),
+            &self.event_q_key.pubkey(),
+            srm_receiver,
+            srm_receiver,
             1
         ).unwrap();
         wrap_process_transaction(
@@ -622,10 +643,8 @@ impl SerumMarket {
             &banks_client,
         )
         .await;
-
-        Ok(())
     }
-} 
+}
 
 fn create_token_account(
     payer: &Keypair, 
