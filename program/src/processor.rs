@@ -673,8 +673,6 @@ impl Processor {
             self_trade_behavior,
         )?;
 
-
-
         msg!("Check 4");
 
         let mut account_infos = vec![

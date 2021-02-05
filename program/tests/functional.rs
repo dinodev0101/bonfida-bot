@@ -5,7 +5,7 @@ use bonfida_bot::{
     state::FIDA_MINT_KEY,
 };
 use rand::{Rng, rngs::OsRng};
-use serum_dex::{instruction::SelfTradeBehavior, matching::Side, state::{account_parser::TokenAccount, gen_vault_signer_key}};
+use serum_dex::{instruction::SelfTradeBehavior, matching::{OrderType, Side}, state::{account_parser::TokenAccount, gen_vault_signer_key}};
 use solana_program::{hash::Hash, instruction::Instruction, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
 use solana_program_test::{BanksClient, ProgramTest, find_file, processor, read_file};
 use solana_sdk::{
@@ -24,8 +24,8 @@ use std::{num::{NonZeroU16, NonZeroU64}, str::FromStr};
 async fn test_bonfida_bot() {
     // Create program and test environment
     let program_id = Pubkey::from_str("BonfidaBotPFXCWuBvfkegQfZyiNwAJb9Ss623VQ5DA").unwrap();
+    // let serum_program_id = &serum_dex::id();
     let serum_program_id = Pubkey::from_str("SerumDEXotPFXCWuBvfkegQfZyiNwAJb9Ss623VQ5DA").unwrap();
-    // TODO init order tracker
     let mut pool_seeds = [41u8; 32];
     let mut seed_found = false;
     while !seed_found {
@@ -39,10 +39,9 @@ async fn test_bonfida_bot() {
     }
     let pool_key = Pubkey::create_program_address(&[&pool_seeds], &program_id).unwrap();
     let mint_key = Pubkey::create_program_address(&[&pool_seeds, &[1]], &program_id).unwrap();
-
-    let mut program_test =
-        ProgramTest::new("bonfida_bot", program_id, processor!(process_instruction));
-
+    // Load program
+    let mut program_test = ProgramTest::new("bonfida_bot", program_id, processor!(process_instruction));
+    
     // Set up Source Owner and Fida mint accounts
     let source_owner = Keypair::new();
     program_test.add_account(
@@ -332,8 +331,8 @@ async fn test_bonfida_bot() {
 
     // Execute a CreateOrder instruction
     let create_order_instruction = create_order(
-        &program_id, 
-        &signal_provider.pubkey(), 
+        &program_id,
+        &signal_provider.pubkey(),
         &serum_market.market_key.pubkey(), 
         &pool_asset_keys[1], 
         1,
@@ -365,59 +364,7 @@ async fn test_bonfida_bot() {
     )
     .await;
 
-    // // Execute a CreateOrder instruction that matches the previous order
-    // let create_matching_order_instruction = create_order(
-    //     &program_id, 
-    //     &signal_provider.pubkey(), 
-    //     &serum_market.market_key.pubkey(), 
-    //     &pool_asset_keys[1], 
-    //     0,
-    //     0,
-    //     &open_order.pubkey(), 
-    //     &order_tracker_key, 
-    //     &serum_market.req_q_key.pubkey(),
-    //     &pool_key, 
-    //     &serum_market.coin_vault, 
-    //     &serum_market.pc_vault, 
-    //     &spl_token::id(), 
-    //     &serum_program_id, 
-    //     &sysvar::rent::id(),
-    //     None, 
-    //     pool_seeds, 
-    //     Side::Bid, 
-    //     NonZeroU64::new(1).unwrap(), 
-    //     NonZeroU16::new(10).unwrap(), 
-    //     serum_dex::matching::OrderType::Limit,
-    //     0, 
-    //     SelfTradeBehavior::DecrementTake,
-    // ).unwrap();
-    // wrap_process_transaction(
-    //     vec![create_matching_order_instruction],
-    //     &payer,
-    //     vec![&signal_provider],
-    //     &recent_blockhash,
-    //     &banks_client,
-    // )
-    // .await;
 
-    // Crank the Serum matching
-    let consume_instruction = serum_dex::instruction::consume_events(
-        &serum_program_id,
-        vec![&open_order.pubkey()],
-        &serum_market.market_key.pubkey(),
-        &serum_market.event_q_key.pubkey(),
-        &srm_receiver,
-        &srm_receiver,
-        1
-    ).unwrap();
-    wrap_process_transaction(
-        vec![consume_instruction],
-        &payer,
-        vec![],
-        &recent_blockhash,
-        &banks_client,
-    )
-    .await;
 }
 
 fn mint_init_transaction(
@@ -498,7 +445,6 @@ impl SerumMarket {
         recent_blockhash: Hash,
         banks_client: &BanksClient
     ) -> Result<Self, ProgramError> {
-        println!("--- Creating Market accounts ---");
         let (market_key, create_market) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 376)?;
         let (req_q_key, create_req_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 640)?;
         let (event_q_key, create_event_q) = Self::create_dex_account(serum_program_id, &payer.pubkey(), 1 << 20)?;
@@ -556,7 +502,6 @@ impl SerumMarket {
         );
         banks_client.to_owned().process_transaction(create_pc_vault).await.unwrap();
         
-        println!("--- Initializing Market ---");
         let init_market_instruction = serum_dex::instruction::initialize_market(
             &market_key.pubkey(),
             serum_program_id,
@@ -573,7 +518,7 @@ impl SerumMarket {
             vault_signer_nonce,
             100,
         )?;
-        let info = SerumMarket {
+        let serum_market = SerumMarket {
             market_key,
             req_q_key,
             event_q_key,
@@ -593,7 +538,7 @@ impl SerumMarket {
         )
         .await;
 
-        Ok(info)
+        Ok(serum_market)
     }
     
     pub fn create_dex_account(
@@ -611,6 +556,74 @@ impl SerumMarket {
             serum_program_id,
         );
         Ok((key, create_account_instr))
+    }
+
+    async fn match_and_crank_order(
+        &self,
+        serum_program_id: &Pubkey,
+        payer: &Keypair,
+        recent_blockhash: Hash,
+        banks_client: &BanksClient,
+        side: Side,
+        limit_price: NonZeroU64,
+        max_qty: NonZeroU64,
+        client_id: u64,
+        self_trade_behavior: SelfTradeBehavior
+    ) -> ProgramResult {
+
+        let (matching_open_order, create_matching_order_tracker_instruction) = SerumMarket::create_dex_account(
+            &serum_program_id, 
+            &payer.pubkey(), 
+            2184
+        ).unwrap();
+        wrap_process_transaction(
+            vec![create_matching_order_tracker_instruction],
+            &payer,
+            vec![&matching_open_order],
+            &recent_blockhash,
+            &banks_client,
+        ).await;
+
+        let matching_instruction = serum_dex::instruction::new_order(
+            &self.market_key.pubkey(), 
+            &matching_open_order.pubkey(), 
+            &self.req_q_key.pubkey(),
+            &payer.pubkey(),
+            &matching_open_order.pubkey(), 
+            &self.coin_vault, 
+            &self.pc_vault, 
+            &spl_token::id(), 
+            &sysvar::rent::id(), 
+            None, 
+            &serum_program_id,
+            Side::from(1 - side.into()),
+            limit_price,
+            max_qty,
+            OrderType::Limit,
+            client_id,
+            self_trade_behavior
+        ).unwrap();
+    
+        // Crank the Serum matching engine
+        let consume_instruction = serum_dex::instruction::consume_events(
+            &serum_program_id,
+            vec![&matching_open_order.pubkey()],
+            &serum_market.market_key.pubkey(),
+            &serum_market.event_q_key.pubkey(),
+            &srm_receiver,
+            &srm_receiver,
+            1
+        ).unwrap();
+        wrap_process_transaction(
+            vec![consume_instruction],
+            &payer,
+            vec![],
+            &recent_blockhash,
+            &banks_client,
+        )
+        .await;
+
+        Ok(())
     }
 } 
 
@@ -649,3 +662,4 @@ fn create_token_account(
     );
     transaction
 }
+
