@@ -302,10 +302,10 @@ async fn test_bonfida_bot() {
     .await;
 
     // Execute a Init Order Tracker instruction
-    let (open_order, create_order_tracker_instruction) = SerumMarket::create_dex_account(
+    let (open_order, create_open_order_instruction) = SerumMarket::create_dex_account(
         &serum_program_id, 
         &payer.pubkey(), 
-        2184).unwrap();
+        3216).unwrap();
         let (order_tracker_key, _) = Pubkey::find_program_address(
             &[&pool_seeds, &open_order.pubkey().to_bytes()],
         &program_id,
@@ -322,7 +322,7 @@ async fn test_bonfida_bot() {
     ).unwrap();
 
     wrap_process_transaction(
-        vec![create_order_tracker_instruction, init_tracker_instruction],
+        vec![create_open_order_instruction, init_tracker_instruction],
         &payer,
         vec![&open_order],
         &recent_blockhash,

@@ -161,7 +161,7 @@ impl Processor {
             &order_tracker_key,
             rent.minimum_balance(OrderTracker::LEN),
             OrderTracker::LEN as u64,
-            &pool_key,
+            &program_id,
         );
 
         invoke_signed(
@@ -518,8 +518,6 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        msg!("Check 1");
-
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         if !signal_provider_account.is_signer {
             msg!("The signal provider's signature is required.");
@@ -529,7 +527,6 @@ impl Processor {
             msg!("A wrong signal provider account was provided.");
             return Err(ProgramError::MissingRequiredSignature);
         }
-        msg!("Check 2");
         match pool_header.status {
             PoolStatus::Uninitialized => return Err(ProgramError::UninitializedAccount),
             PoolStatus::Unlocked => {
@@ -594,10 +591,6 @@ impl Processor {
                 target_index,
             )?;
         }
-
-
-
-        msg!("Check 3");
 
         if source_asset.mint_address
             != match side {
@@ -672,10 +665,6 @@ impl Processor {
             client_id,
             self_trade_behavior,
         )?;
-
-
-
-        msg!("Check 4");
 
         let mut account_infos = vec![
             market.clone(),
