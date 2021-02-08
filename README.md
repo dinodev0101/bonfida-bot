@@ -31,3 +31,7 @@
 
 ### Diagram:
 ![structure-diagram](assets/bonfida-bot.png)
+
+### Build and use:
+
+Run `make` in the `program` folder before doing any testing or fuzzing.

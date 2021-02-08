@@ -12,3 +12,4 @@ Cargo.lock
 target
 .vscode
 hfuzz*
+third_party/

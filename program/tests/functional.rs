@@ -386,7 +386,7 @@ async fn test_bonfida_bot() {
     println!("Pool PC asset after trade: {:?}", after_matching_amount_token);
 
     // Execute a Settle instruction
-    let settle_instruction = settle_funds(bonfidabot_program_id, market, openorders_account, order_tracker, pool_account, pool_token_mint, coin_vault, pc_vault, pool_coin_wallet, pool_pc_wallet, vault_signer, spl_token_program, dex_program, referrer_pc_account, pool_seed, pc_index, coin_index);
+    // let settle_instruction = settle_funds(bonfidabot_program_id, market, openorders_account, order_tracker, pool_account, pool_token_mint, coin_vault, pc_vault, pool_coin_wallet, pool_pc_wallet, vault_signer, spl_token_program, dex_program, referrer_pc_account, pool_seed, pc_index, coin_index);
 }
 
 fn mint_init_transaction(
