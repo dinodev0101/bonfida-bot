@@ -504,7 +504,7 @@ impl Processor {
         let pc_lot_size =
             u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
 
-        check_open_orders_account(openorders_account, pool_account.key)?;
+        check_open_orders_account(openorders_account, pool_account.key, true)?;
 
         let source_account = Account::unpack(&pool_asset_token_account.data.borrow()).or_else(|e|{
             msg!("Invalid pool asset token account provided");
@@ -718,6 +718,7 @@ impl Processor {
             &pool_seed,
             openorders_account.key,
         )?;
+        check_open_orders_account(openorders_account, pool_account.key, false)?;
 
         let mut order_tracker = OrderTracker::unpack(&order_tracker_account.data.borrow())
             .map_err(|e| {
@@ -783,24 +784,17 @@ impl Processor {
             pool_pc_asset.mint_address = pc_mint
         }
 
-        // TODO : check offsets
-        let openorders_account_owner = Pubkey::new(&openorders_account.data.borrow()[40..72]);
-
-        if &openorders_account_owner != pool_account.key {
-            msg!("The pool account should own the open orders account");
-        }
-
         let openorders_free_pc = openorders_account
             .data
             .borrow()
-            .get(88..96)
+            .get(93..101)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
         let openorders_free_coin = openorders_account
             .data
             .borrow()
-            .get(72..80)
+            .get(77..85)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
@@ -808,14 +802,14 @@ impl Processor {
         let openorders_total_pc = openorders_account
             .data
             .borrow()
-            .get(96..108)
+            .get(101..109)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
         let openorders_total_coin = openorders_account
             .data
             .borrow()
-            .get(80..88)
+            .get(85..93)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
@@ -957,7 +951,7 @@ impl Processor {
         let dex_program = next_account_info(accounts_iter)?;
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
-        check_open_orders_account(openorders_account, pool_account.key)?;
+        check_open_orders_account(openorders_account, pool_account.key, false)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
         check_signal_provider(&pool_header, signal_provider, true)?;

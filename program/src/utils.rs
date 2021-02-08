@@ -21,6 +21,7 @@ pub fn check_pool_key(program_id: &Pubkey, key: &Pubkey, pool_seed: &[u8; 32]) -
 pub fn check_open_orders_account(
     openorders_account: &AccountInfo,
     pool_key: &Pubkey,
+    allow_uninitialized: bool
 ) -> ProgramResult {
     // TODO: Check offsets
     let account_flags = openorders_account.data.borrow()
@@ -30,7 +31,7 @@ pub fn check_open_orders_account(
     if account_flags.is_none() {
         msg!("Failed to parse openorders account flags");
     }
-    if account_flags == Some(0) {
+    if (account_flags == Some(0)) & allow_uninitialized {
         // Open Orders account is uninitialized
         return Ok(())
     }

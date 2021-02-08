@@ -18,7 +18,7 @@ use spl_token::{
     instruction::{initialize_mint, mint_to, initialize_account},
     state::Mint,
 };
-use std::{num::{NonZeroU16, NonZeroU64}, str::FromStr};
+use std::{convert::TryInto, num::{NonZeroU16, NonZeroU64}, str::FromStr};
 
 #[tokio::test]
 async fn test_bonfida_bot() {
@@ -368,6 +368,13 @@ async fn test_bonfida_bot() {
     ).unwrap().amount;
     std::println!("Pool PC asset before trade: {:?}", matching_amount_token);
     let lots_to_trade = serum_market.coin_lot_size * matching_amount_token / (serum_market.pc_lot_size * 1); // 1 is price
+
+
+    let mut openorder_view = OpenOrderView::parse(
+        banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
+    );
+
+    println!("Open order account before trade: {:?}", openorder_view);
     serum_market.match_and_crank_order(
         &serum_program_id,
         &payer,
@@ -383,10 +390,40 @@ async fn test_bonfida_bot() {
     let after_matching_amount_token = spl_token::state::Account::unpack(
         &banks_client.get_account(pool_asset_keys[1]).await.unwrap().unwrap().data
     ).unwrap().amount;
-    println!("Pool PC asset after trade: {:?}", after_matching_amount_token);
+
+    openorder_view = OpenOrderView::parse(
+        banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
+    );
+    println!("Open order account after trade before settle: {:?}", openorder_view);
 
     // Execute a Settle instruction
-    // let settle_instruction = settle_funds(bonfidabot_program_id, market, openorders_account, order_tracker, pool_account, pool_token_mint, coin_vault, pc_vault, pool_coin_wallet, pool_pc_wallet, vault_signer, spl_token_program, dex_program, referrer_pc_account, pool_seed, pc_index, coin_index);
+    let settle_instruction = settle_funds(
+        &program_id, 
+        &serum_market.market_key.pubkey(), 
+        &open_order.pubkey(), 
+        &order_tracker_key, 
+        &pool_key, 
+        &mint_key, 
+        &serum_market.coin_vault, 
+        &serum_market.pc_vault, 
+        &pool_asset_keys[2], 
+        &pool_asset_keys[1], 
+        &serum_market.vault_signer_pk, 
+        &spl_token::id(), 
+        &serum_program_id, 
+        None, 
+        pool_seeds, 
+        1,
+        2
+    ).unwrap();
+    wrap_process_transaction(
+        vec![settle_instruction],
+        &payer,
+        vec![],
+        &recent_blockhash,
+        &banks_client,
+    ).await;
+    println!("Pool PC asset after trade: {:?}", after_matching_amount_token);
 }
 
 fn mint_init_transaction(
@@ -657,6 +694,13 @@ impl SerumMarket {
             client_id,
             self_trade_behavior
         ).unwrap();
+        wrap_process_transaction(
+            vec![matching_instruction],
+            &payer,
+            vec![],
+            &recent_blockhash,
+            banks_client
+        ).await;
     
         // Crank the Serum matching engine
         let match_instruction = serum_dex::instruction::match_orders(
@@ -735,3 +779,32 @@ fn create_token_account(
     transaction
 }
 
+#[derive(Debug)]
+struct OpenOrderView {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub native_coin_free: u64,
+    pub native_coin_total: u64,
+    pub native_pc_free: u64,
+    pub native_pc_total: u64,
+}
+
+impl OpenOrderView {    
+    fn parse(data: Vec<u8>) -> Self{
+        let stripped = &data[13..];
+        let market = Pubkey::new(&stripped[..32]);
+        let owner = Pubkey::new(&stripped[32..64]);
+        let native_coin_free = u64::from_le_bytes(stripped[64..72].try_into().unwrap());
+        let native_coin_total = u64::from_le_bytes(stripped[72..80].try_into().unwrap());
+        let native_pc_free = u64::from_le_bytes(stripped[80..88].try_into().unwrap());
+        let native_pc_total = u64::from_le_bytes(stripped[88..96].try_into().unwrap());
+        Self {
+            market,
+            owner,
+            native_coin_free,
+            native_coin_total,
+            native_pc_free,
+            native_pc_total
+        }
+    }
+}
