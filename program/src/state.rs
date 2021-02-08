@@ -191,6 +191,7 @@ pub struct OrderTracker {
     pub side: Side,
     pub source_amount_per_token: u64,
     pub pending_target_amount: u64,
+    pub source_total_amount: u64
 }
 
 impl Sealed for OrderTracker {}
@@ -202,7 +203,7 @@ impl IsInitialized for OrderTracker {
 }
 
 impl Pack for OrderTracker {
-    const LEN: usize = 24;
+    const LEN: usize = 32;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         dst[0] = match self.side {
@@ -212,12 +213,16 @@ impl Pack for OrderTracker {
 
         let source_amount_per_token_bytes = self.source_amount_per_token.to_le_bytes();
         let pending_target_amount_bytes = self.pending_target_amount.to_le_bytes();
+        let source_total_amount_bytes = self.source_total_amount.to_le_bytes();
 
         for i in 1..9 {
             dst[i] = source_amount_per_token_bytes[i - 1]
         }
         for i in 9..17 {
             dst[i] = pending_target_amount_bytes[i - 9]
+        }
+        for i in 17..25 {
+            dst[i] = source_total_amount_bytes[i - 17]
         }
     }
 
@@ -238,10 +243,16 @@ impl Pack for OrderTracker {
             .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
             .ok_or(ProgramError::InvalidAccountData)?;
 
+        let source_total_amount = src
+            .get(17..25)
+            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
+            .ok_or(ProgramError::InvalidAccountData)?;
+
         Ok(Self {
             side,
             source_amount_per_token,
             pending_target_amount,
+            source_total_amount
         })
     }
 }
@@ -338,6 +349,7 @@ mod tests {
             side: Side::Ask,
             source_amount_per_token: 54,
             pending_target_amount: 456,
+            source_total_amount: 3212,
         };
         assert_eq!(
             order_tracker,

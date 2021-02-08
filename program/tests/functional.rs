@@ -374,7 +374,7 @@ async fn test_bonfida_bot() {
     );
 
     println!("Open order account before trade: {:?}", openorder_view);
-    serum_market.match_and_crank_order(
+    let matching_open_order = serum_market.match_and_crank_order(
         &serum_program_id,
         &payer,
         recent_blockhash,
@@ -391,11 +391,7 @@ async fn test_bonfida_bot() {
         &banks_client.get_account(pool_asset_keys[1]).await.unwrap().unwrap().data
     ).unwrap().amount;
 
-    openorder_view = OpenOrderView::parse(
-        banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
-    );
-    println!("Open order account after trade before settle: {:?}", openorder_view);
-
+    
     // Execute a Settle instruction
     let settle_instruction = settle_funds(
         &program_id, 
@@ -423,7 +419,40 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     ).await.unwrap();
-    println!("Pool PC asset after trade: {:?}", after_matching_amount_token);
+    openorder_view = OpenOrderView::parse(
+        banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
+    );
+    println!("Open order account after settle: {:?}", openorder_view);
+    let matching_openorder_view = OpenOrderView::parse(
+        banks_client.get_account(matching_open_order).await.unwrap().unwrap().data
+    );
+    println!("Matching Open order account after settle: {:?}", matching_openorder_view);
+
+    // Execute a Cancel order instruction on the original, partially settled, order 
+    let cancel_instruction = cancel_order(
+        &program_id, 
+        &signal_provider.pubkey(),
+        &serum_market.market_key.pubkey(), 
+        &open_order.pubkey(),
+        &serum_market.req_q_key.pubkey(), 
+        &pool_key, 
+        &serum_program_id,
+        pool_seeds, 
+        Side::Bid,
+        openorder_view.orders[0],
+    ).unwrap();
+    wrap_process_transaction(
+        vec![cancel_instruction],
+        &payer,
+        vec![&signal_provider],
+        &recent_blockhash,
+        &banks_client,
+    ).await.unwrap();
+    openorder_view = OpenOrderView::parse(
+        banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
+    );
+    println!("Open order account after settle: {:?}", openorder_view);
+
 }
 
 fn mint_init_transaction(
@@ -662,7 +691,7 @@ impl SerumMarket {
         self_trade_behavior: SelfTradeBehavior,
         asset_mint_authority: &Keypair,
         open_order_to_match: &Pubkey
-    ) {
+    ) -> Pubkey {
         // Create and mint to coin source
         let coin_source = Keypair::new();
         let coin_source_owner = Keypair::new();
@@ -778,6 +807,8 @@ impl SerumMarket {
             &banks_client,
         )
         .await.unwrap();
+
+        matching_open_order.pubkey()
     }
 }
 
@@ -825,6 +856,7 @@ struct OpenOrderView {
     pub native_coin_total: u64,
     pub native_pc_free: u64,
     pub native_pc_total: u64,
+    pub orders: Vec<u128>,
 }
 
 impl OpenOrderView {    
@@ -836,13 +868,18 @@ impl OpenOrderView {
         let native_coin_total = u64::from_le_bytes(stripped[72..80].try_into().unwrap());
         let native_pc_free = u64::from_le_bytes(stripped[80..88].try_into().unwrap());
         let native_pc_total = u64::from_le_bytes(stripped[88..96].try_into().unwrap());
+        let mut orders = Vec::with_capacity(128);
+        for i in 0..128 {
+            orders.push(u128::from_le_bytes(stripped[(128 + 16*i)..(144 + 16*i)].try_into().unwrap()));
+        }
         Self {
             market,
             owner,
             native_coin_free,
             native_coin_total,
             native_pc_free,
-            native_pc_total
+            native_pc_total,
+            orders
         }
     }
 }

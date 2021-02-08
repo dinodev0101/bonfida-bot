@@ -1,4 +1,4 @@
-use std::{cmp::min, convert::TryInto, num::{NonZeroU16, NonZeroU64, NonZeroU8}};
+use std::{cmp::min, convert::TryInto, num::{NonZeroU16, NonZeroU64, NonZeroU8}, task::Poll};
 
 use crate::{
     error::BonfidaBotError,
@@ -558,6 +558,7 @@ impl Processor {
                 }
             }
         };
+        pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
 
 
 
@@ -654,6 +655,7 @@ impl Processor {
             side,
             source_amount_per_token: amount_to_trade_per_pooltoken,
             pending_target_amount: expected_target_tokens,
+            source_total_amount: amount_to_trade
         };
 
         order_tracker.pack_into_slice(&mut order_tracker_account.data.borrow_mut());
@@ -825,10 +827,10 @@ impl Processor {
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
-        
+    
         if (openorders_free_pc == openorders_total_pc) & (openorders_free_coin == openorders_total_coin) {
             // This means the order can be entirely settled.
-            let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+            let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
             pool_header.status = match pool_header.status {
                 PoolStatus::PendingOrder(n) |
                 PoolStatus::LockedPendingOrder(n) => {
@@ -847,7 +849,9 @@ impl Processor {
                         }
                     }
                 }
-                _ => { return Err(ProgramError::InvalidAccountData) }
+                _ => {
+                    msg!("{:?}", pool_header.status); 
+                    return Err(ProgramError::InvalidAccountData) }
             }
 
         }
@@ -867,9 +871,10 @@ impl Processor {
             ),
         };
         let source_proportion_of_order = ((free_source_amount as u128) << 64)
-            .checked_div(total_source_amount as u128)
+            .checked_div(order_tracker.source_total_amount as u128)
             .ok_or(ProgramError::InvalidAccountData)?
             as u64;
+        order_tracker.source_total_amount -= free_source_amount;
 
         let target_proportion_of_order = ((free_target_amount as u128) << 64)
             .checked_div(order_tracker.pending_target_amount as u128)
@@ -909,7 +914,6 @@ impl Processor {
             &pool_pc_asset,
             pc_index,
         )?;
-
         let instruction = settle_funds(
             dex_program.key,
             market.key,
@@ -965,11 +969,11 @@ impl Processor {
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
         check_open_orders_account(openorders_account, pool_account.key, false)?;
 
-        let pool_header = PoolHeader::unpack(&pool_account.data.borrow())?;
+        let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         check_signal_provider(&pool_header, signal_provider, true)?;
 
         let instruction = cancel_order(
-            program_id,
+            &dex_program.key,
             market.key,
             openorders_account.key,
             pool_account.key,
@@ -984,6 +988,7 @@ impl Processor {
             &instruction,
             &vec![
                 dex_program.clone(),
+                market.clone(),
                 openorders_account.clone(),
                 request_queue.clone(),
                 pool_account.clone(),
