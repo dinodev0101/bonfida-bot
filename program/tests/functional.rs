@@ -1,17 +1,10 @@
 #![cfg(feature = "test-bpf")]
-use bonfida_bot::{
-    entrypoint::process_instruction,
-    instruction::{create, deposit, init, init_order_tracker, create_order, cancel_order, settle_funds, redeem},
-    state::FIDA_MINT_KEY,
-};
+use bonfida_bot::{entrypoint::process_instruction, instruction::{create, deposit, init, init_order_tracker, create_order, cancel_order, settle_funds, redeem}, state::{FIDA_MINT_KEY, PoolAsset, PoolHeader, unpack_assets}};
 use rand::{Rng, rngs::OsRng};
 use serum_dex::{instruction::SelfTradeBehavior, matching::{OrderType, Side}, state::{account_parser::TokenAccount, gen_vault_signer_key}};
-use solana_program::{hash::Hash, instruction::Instruction, msg, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
+use solana_program::{entrypoint::ProgramResult, hash::Hash, instruction::Instruction, msg, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction::create_account, system_program, sysvar};
 use solana_program_test::{BanksClient, ProgramTest, find_file, processor, read_file};
-use solana_sdk::{
-    account::Account, signature::Keypair, signature::Signer, system_instruction,
-    transaction::Transaction,
-};
+use solana_sdk::{account::Account, signature::Keypair, signature::Signer, system_instruction, transaction::Transaction, transport::TransportError};
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{
     self,
@@ -181,7 +174,7 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     )
-    .await;
+    .await.unwrap();
 
     // Setup pool and source token asset accounts
     let deposit_amounts = vec![1_000_001, 20_000_000, 238_479, 2_344, 667];
@@ -251,7 +244,7 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     )
-    .await;
+    .await.unwrap();
 
     // Execute the create pool instruction
     let signal_provider = Keypair::new();
@@ -276,7 +269,9 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     )
-    .await;
+    .await.unwrap();
+
+    print_pool_data(&pool_key, &banks_client).await.unwrap();
 
     // Execute the Deposit transaction
     let deposit_instruction = deposit(
@@ -289,7 +284,7 @@ async fn test_bonfida_bot() {
         &source_owner.pubkey(),
         &source_asset_keys,
         pool_seeds,
-        2,
+        5000,
     )
     .unwrap();
     wrap_process_transaction(
@@ -299,7 +294,9 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     )
-    .await;
+    .await.unwrap();
+
+    print_pool_data(&pool_key, &banks_client).await.unwrap();
 
     // Execute a Init Order Tracker instruction
     let (open_order, create_open_order_instruction) = SerumMarket::create_dex_account(
@@ -328,7 +325,7 @@ async fn test_bonfida_bot() {
         &recent_blockhash,
         &banks_client,
     )
-    .await;
+    .await.unwrap();
 
     // Execute a CreateOrder instruction
     let create_order_instruction = create_order(
@@ -351,7 +348,7 @@ async fn test_bonfida_bot() {
         pool_seeds,
         Side::Bid,
         NonZeroU64::new(1).unwrap(), 
-        NonZeroU16::new(1<<15).unwrap(),
+        NonZeroU16::new(1<<14).unwrap(),
         serum_dex::matching::OrderType::Limit,
         0,
         SelfTradeBehavior::DecrementTake,
@@ -362,14 +359,16 @@ async fn test_bonfida_bot() {
         vec![&signal_provider],
         &recent_blockhash,
         &banks_client,
-    ).await;
+    ).await.unwrap();
     let matching_amount_token = spl_token::state::Account::unpack(
         &banks_client.get_account(pool_asset_keys[1]).await.unwrap().unwrap().data
     ).unwrap().amount;
     std::println!("Pool PC asset before trade: {:?}", matching_amount_token);
     let lots_to_trade = serum_market.coin_lot_size * matching_amount_token / (serum_market.pc_lot_size * 1); // 1 is price
+    println!("Lots to trade for match: {:?}", lots_to_trade);
 
-
+    print_pool_data(&pool_key, &banks_client).await.unwrap();
+    
     let mut openorder_view = OpenOrderView::parse(
         banks_client.get_account(open_order.pubkey()).await.unwrap().unwrap().data
     );
@@ -381,11 +380,12 @@ async fn test_bonfida_bot() {
         recent_blockhash,
         &banks_client,
         Side::Bid,
-        NonZeroU64::new(1).unwrap(), 
+        NonZeroU64::new(2).unwrap(), 
         NonZeroU64::new(lots_to_trade).unwrap(),
         0,
         SelfTradeBehavior::DecrementTake,
-        &srm_receiver
+        &asset_mint_authority,
+        &open_order.pubkey()
     ).await;
     let after_matching_amount_token = spl_token::state::Account::unpack(
         &banks_client.get_account(pool_asset_keys[1]).await.unwrap().unwrap().data
@@ -401,10 +401,10 @@ async fn test_bonfida_bot() {
         &program_id, 
         &serum_market.market_key.pubkey(), 
         &open_order.pubkey(), 
-        &order_tracker_key, 
-        &pool_key, 
-        &mint_key, 
-        &serum_market.coin_vault, 
+        &order_tracker_key,
+        &pool_key,
+        &mint_key,
+        &serum_market.coin_vault,
         &serum_market.pc_vault, 
         &pool_asset_keys[2], 
         &pool_asset_keys[1], 
@@ -422,7 +422,7 @@ async fn test_bonfida_bot() {
         vec![],
         &recent_blockhash,
         &banks_client,
-    ).await;
+    ).await.unwrap();
     println!("Pool PC asset after trade: {:?}", after_matching_amount_token);
 }
 
@@ -471,7 +471,7 @@ async fn wrap_process_transaction(
     mut signers: Vec<&Keypair>,
     recent_blockhash: &Hash,
     banks_client: &BanksClient,
-) {
+) -> Result<(), TransportError> {
     let mut setup_transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));
     &signers.push(payer);
     setup_transaction.partial_sign(&signers, *recent_blockhash);
@@ -479,7 +479,6 @@ async fn wrap_process_transaction(
         .to_owned()
         .process_transaction(setup_transaction)
         .await
-        .unwrap();
 }
 
 struct SerumMarket {
@@ -495,7 +494,9 @@ struct SerumMarket {
     coin_fee_receiver: Pubkey,
     pc_fee_receiver: Pubkey,
     coin_vault: Pubkey,
-    pc_vault: Pubkey
+    pc_vault: Pubkey,
+    coin_mint: Pubkey,
+    pc_mint: Pubkey
 }
 
 impl SerumMarket {
@@ -544,14 +545,14 @@ impl SerumMarket {
             &recent_blockhash,
             &banks_client,
         )
-        .await;
+        .await.unwrap();
 
         // Create Vaults
         let coin_vault = Keypair::new();
         let pc_vault = Keypair::new();
         let create_coin_vault = create_token_account(
             &payer, 
-            coin_mint,
+            &coin_mint.pubkey(),
             recent_blockhash,
             &coin_vault,
             &vault_signer_pk
@@ -559,7 +560,7 @@ impl SerumMarket {
         banks_client.to_owned().process_transaction(create_coin_vault).await.unwrap();
         let create_pc_vault = create_token_account(
             &payer, 
-            pc_mint, 
+            &pc_mint.pubkey(), 
             recent_blockhash,
             &pc_vault,
             &vault_signer_pk
@@ -571,7 +572,7 @@ impl SerumMarket {
         let pc_fee_receiver = Keypair::new();
         let create_coin_fee_receiver = create_token_account(
             &payer, 
-            coin_mint,
+            &coin_mint.pubkey(),
             recent_blockhash,
             &coin_fee_receiver,
             &Pubkey::new_unique()
@@ -579,7 +580,7 @@ impl SerumMarket {
         banks_client.to_owned().process_transaction(create_coin_fee_receiver).await.unwrap();
         let create_pc_fee_receiver = create_token_account(
             &payer, 
-            pc_mint, 
+            &pc_mint.pubkey(), 
             recent_blockhash,
             &pc_fee_receiver,
             &Pubkey::new_unique()
@@ -615,7 +616,9 @@ impl SerumMarket {
             coin_fee_receiver: coin_fee_receiver.pubkey(),
             pc_fee_receiver: pc_fee_receiver.pubkey(),
             coin_vault: coin_vault.pubkey(),
-            pc_vault: pc_vault.pubkey()
+            pc_vault: pc_vault.pubkey(),
+            coin_mint: coin_mint.pubkey(),
+            pc_mint: pc_mint.pubkey()
         };
         wrap_process_transaction(
             vec![init_market_instruction],
@@ -624,7 +627,7 @@ impl SerumMarket {
             &recent_blockhash,
             &banks_client,
         )
-        .await;
+        .await.unwrap();
 
         Ok(serum_market)
     }
@@ -657,12 +660,41 @@ impl SerumMarket {
         max_qty: NonZeroU64,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
-        srm_receiver: &Pubkey
+        asset_mint_authority: &Keypair,
+        open_order_to_match: &Pubkey
     ) {
+        // Create and mint to coin source
+        let coin_source = Keypair::new();
+        let coin_source_owner = Keypair::new();
+        let create_coin_source = create_token_account(
+            &payer, 
+            &self.coin_mint,
+            recent_blockhash,
+            &coin_source,
+            &coin_source_owner.pubkey(),
+        );
+        banks_client.to_owned().process_transaction(create_coin_source).await.unwrap();
+        let mint_coin_source_instruction = mint_to(
+            &spl_token::id(),
+            &self.coin_mint,
+            &coin_source.pubkey(),
+            &asset_mint_authority.pubkey(),
+            &[],
+            (u64::MAX as u64) >> 1,
+        ).unwrap();
+        wrap_process_transaction(
+            vec![mint_coin_source_instruction],
+            &payer,
+            vec![&asset_mint_authority],
+            &recent_blockhash,
+            &banks_client,
+        ).await.unwrap();
+
+
         let (matching_open_order, create_matching_order_tracker_instruction) = SerumMarket::create_dex_account(
             &serum_program_id,
             &payer.pubkey(), 
-            2184
+            3216
         ).unwrap();
         wrap_process_transaction(
             vec![create_matching_order_tracker_instruction],
@@ -670,14 +702,15 @@ impl SerumMarket {
             vec![&matching_open_order],
             &recent_blockhash,
             &banks_client,
-        ).await;
+        ).await.unwrap();
+
 
         let matching_instruction = serum_dex::instruction::new_order(
             &self.market_key.pubkey(),
             &matching_open_order.pubkey(), 
             &self.req_q_key.pubkey(),
-            &payer.pubkey(),
-            &matching_open_order.pubkey(),
+            &coin_source.pubkey(),
+            &coin_source_owner.pubkey(),
             &self.coin_vault,
             &self.pc_vault,
             &spl_token::id(),
@@ -697,22 +730,27 @@ impl SerumMarket {
         wrap_process_transaction(
             vec![matching_instruction],
             &payer,
-            vec![],
+            vec![&coin_source_owner],
             &recent_blockhash,
             banks_client
-        ).await;
+        ).await.unwrap();
     
+        let openorder_view = OpenOrderView::parse(
+            banks_client.to_owned().get_account(matching_open_order.pubkey()).await.unwrap().unwrap().data
+        );
+        println!("Matching Open order account before matching: {:?}", openorder_view);
+
         // Crank the Serum matching engine
         let match_instruction = serum_dex::instruction::match_orders(
             &serum_program_id, 
             &self.market_key.pubkey(), 
             &self.req_q_key.pubkey(), 
-            &self.bids_key.pubkey(), 
-            &self.asks_key.pubkey(), 
+            &self.bids_key.pubkey(),
+            &self.asks_key.pubkey(),
             &self.event_q_key.pubkey(), 
             &self.coin_fee_receiver, 
             &self.pc_fee_receiver,
-            1
+            10
         ).unwrap();
         wrap_process_transaction(
             vec![match_instruction],
@@ -721,16 +759,16 @@ impl SerumMarket {
             &recent_blockhash,
             &banks_client,
         )
-        .await;
+        .await.unwrap();
 
         let consume_instruction = serum_dex::instruction::consume_events(
             &serum_program_id,
-            vec![&matching_open_order.pubkey()],
+            vec![&matching_open_order.pubkey(), &open_order_to_match],
             &self.market_key.pubkey(),
             &self.event_q_key.pubkey(),
             &self.coin_fee_receiver, 
             &self.pc_fee_receiver,
-            1
+            10
         ).unwrap();
         wrap_process_transaction(
             vec![consume_instruction],
@@ -739,13 +777,13 @@ impl SerumMarket {
             &recent_blockhash,
             &banks_client,
         )
-        .await;
+        .await.unwrap();
     }
 }
 
 fn create_token_account(
     payer: &Keypair, 
-    mint:&Keypair, 
+    mint:&Pubkey, 
     recent_blockhash: Hash,
     token_account:&Keypair,
     token_account_owner: &Pubkey
@@ -761,7 +799,7 @@ fn create_token_account(
         initialize_account(
             &spl_token::id(), 
             &token_account.pubkey(), 
-            &mint.pubkey(), 
+            &mint, 
             token_account_owner
         ).unwrap()
    ];
@@ -807,4 +845,24 @@ impl OpenOrderView {
             native_pc_total
         }
     }
+}
+
+async fn print_pool_data(
+    pool_key: &Pubkey,
+    banks_client: &BanksClient
+) -> Result<(),ProgramError> {
+    let data = banks_client.to_owned().get_account(*pool_key).await.unwrap().unwrap().data;
+    let pool_assets = unpack_assets(&data[PoolHeader::LEN..])?;
+    for asset in pool_assets {
+        print!("{:?}", asset);
+        let pool_asset_key = get_associated_token_address(
+            &pool_key,
+            &asset.mint_address
+        );
+        let asset_data = banks_client.to_owned().get_account(pool_asset_key).await.unwrap().unwrap().data;
+        let token_amount = spl_token::state::Account::unpack(&asset_data)?.amount;
+        println!(" Token amount: {:?}", token_amount);
+    }
+
+    Ok(())
 }

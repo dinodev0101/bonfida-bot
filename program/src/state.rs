@@ -158,7 +158,6 @@ impl Pack for PoolAsset {
 
 pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError> {
     let number_of_assets = input.len() / PoolAsset::LEN;
-    msg!("number_of_assets: {:?}", number_of_assets);
     let mut output: Vec<PoolAsset> = Vec::with_capacity(number_of_assets);
     let mut offset = 0;
     for _ in 0..number_of_assets {

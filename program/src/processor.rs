@@ -350,12 +350,16 @@ impl Processor {
         let pool_mint_key =
             Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
         // Safety verifications
+        if pool_token_amount < 1_000 {
+            msg!("Provided pool token amount isn't sufficient.");
+            return Err(ProgramError::InvalidArgument);
+        }        
         if pool_key != *pool_account.key {
-            msg!("Provided pool account doesn't match the provided pool seed");
+            msg!("Provided pool account doesn't match the provided pool seed.");
             return Err(ProgramError::InvalidArgument);
         }
         if pool_mint_key != *mint_account.key {
-            msg!("Provided mint account is invalid");
+            msg!("Provided mint account is invalid.");
             return Err(ProgramError::InvalidArgument);
         }
         if !source_owner_account.is_signer {
@@ -363,7 +367,7 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
         if *pool_account.owner != *program_id {
-            msg!("Program should own pool account");
+            msg!("Program should own pool account.");
             return Err(ProgramError::InvalidArgument);
         }
         match pool_header.status {
@@ -390,9 +394,10 @@ impl Processor {
             let source_asset_amount =
                 Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
             pool_token_effective_amount = min(
-                source_asset_amount
-                    .checked_div(pool_assets[i].amount_in_token)
-                    .unwrap_or(std::u64::MAX),
+                (source_asset_amount as u128)
+                    .checked_mul(1_000_000).unwrap()
+                    .checked_div(pool_assets[i].amount_in_token as u128)
+                    .unwrap_or(std::u64::MAX.into()) as u64,
                 pool_token_effective_amount,
             );
         }
@@ -410,9 +415,10 @@ impl Processor {
 
             let amount = pool_token_effective_amount
                 .checked_mul(pool_assets[i].amount_in_token)
-                .ok_or(BonfidaBotError::Overflow)?;
+                .ok_or(BonfidaBotError::Overflow)?
+                / 1_000_000;
             if amount == 0 {
-                break;
+                continue;
             }
             let instruction = transfer(
                 spl_token_account.key,
@@ -602,14 +608,20 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let cast_value: u128 = source_asset.amount_in_token.into();
+        let cast_value: u128 = Account::unpack( &pool_asset_token_account.data.borrow())?.amount as u128;
+        let cast_value_per_pooltoken: u128 = source_asset.amount_in_token as u128;
 
-        let amount_to_trade_in_token = (cast_value
+        let amount_to_trade = (cast_value
             .checked_mul(max_ratio_of_pool_to_sell_to_another_fellow_trader.get().into())
             .ok_or(BonfidaBotError::Overflow)?
             >> 16) as u64;
 
-        let lots_to_trade = amount_to_trade_in_token
+        let amount_to_trade_per_pooltoken = (cast_value_per_pooltoken
+            .checked_mul(max_ratio_of_pool_to_sell_to_another_fellow_trader.get().into())
+            .ok_or(BonfidaBotError::Overflow)?
+            >> 16) as u64;
+
+        let lots_to_trade = amount_to_trade
             .checked_div(match side {
                 Side::Bid => pc_lot_size,
                 Side::Ask => coin_lot_size,
@@ -630,7 +642,7 @@ impl Processor {
                 .ok_or(ProgramError::InvalidArgument)?,
         };
 
-        source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_in_token;
+        source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_per_pooltoken;
 
         pack_asset(
             &mut pool_account.data.borrow_mut(),
@@ -640,7 +652,7 @@ impl Processor {
 
         let order_tracker = OrderTracker {
             side,
-            source_amount_per_token: amount_to_trade_in_token,
+            source_amount_per_token: amount_to_trade_per_pooltoken,
             pending_target_amount: expected_target_tokens,
         };
 
