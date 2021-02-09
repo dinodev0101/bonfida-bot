@@ -10,7 +10,7 @@ use solana_program::{
     hash::Hash, instruction::Instruction, program_error::ProgramError, program_pack::Pack,
     pubkey::Pubkey, rent::Rent, system_instruction, sysvar,
 };
-use solana_program_test::BanksClient;
+use solana_program_test::{BanksClient, ProgramTestBanksClientExt};
 use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
@@ -330,6 +330,8 @@ impl SerumMarket {
         banks_client: &BanksClient,
         open_order_accounts: Vec<&Pubkey>,
     ) {
+        println!("CHECKEEsss");
+
         // Crank the Serum matching engine
         let match_instruction = serum_dex::instruction::match_orders(
             serum_program_id,
@@ -343,18 +345,23 @@ impl SerumMarket {
             10,
         )
         .unwrap();
+        let new_block_hash = banks_client
+            .to_owned()
+            .get_new_blockhash(recent_blockhash)
+            .await.unwrap().0;
         wrap_process_transaction(
             vec![match_instruction],
             &payer,
             vec![],
-            &recent_blockhash,
+            &new_block_hash,
             &banks_client,
         )
         .await
         .unwrap();
+        println!("CHECKEEssFs");
 
         let consume_instruction = serum_dex::instruction::consume_events(
-            &serum_program_id,
+            serum_program_id,
             open_order_accounts,
             &self.market_key.pubkey(),
             &self.event_q_key.pubkey(),
@@ -367,11 +374,13 @@ impl SerumMarket {
             vec![consume_instruction],
             &payer,
             vec![],
-            &recent_blockhash,
+            &new_block_hash,
             &banks_client,
         )
         .await
         .unwrap();
+        println!("CHECKEEssFs 3");
+
     }
 }
 

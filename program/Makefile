@@ -11,3 +11,8 @@ serum_dex.so:
 clean:
 	rm -rf third_party/serum_dex
 	rm -f target/deploy/serum_dex.so
+
+.PHONY: rebuild
+rebuild:
+	rm -f target/deploy/serum_dex.so
+	cargo build-bpf --manifest-path "third_party/serum_dex/dex/Cargo.toml" --bpf-out-dir target/deploy

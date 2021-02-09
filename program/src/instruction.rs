@@ -128,7 +128,7 @@ pub enum PoolInstruction {
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
         source_index: u64,
-        target_index: u64
+        target_index: u64,
     },
     /// As a signal provider, cancel a serum order for the pool.
     ///
@@ -168,7 +168,7 @@ pub enum PoolInstruction {
         pc_index: u64,
         coin_index: u64,
     },
-    /// Buy out of the pool by redeeming pooltokens. 
+    /// Buy out of the pool by redeeming pooltokens.
     /// This instruction needs to be executed after (and within the same transaction)
     /// having settled on all possible open orders for the pool.
     ///
@@ -319,7 +319,7 @@ impl PoolInstruction {
                     client_id,
                     self_trade_behavior,
                     source_index,
-                    target_index
+                    target_index,
                 }
             }
             5 => {
@@ -649,7 +649,6 @@ pub fn redeem(
     pool_asset_keys: &Vec<Pubkey>,
     source_pool_token_owner_key: &Pubkey,
     source_pool_token_key: &Pubkey,
-    source_owner: &Pubkey,
     target_asset_keys: &Vec<Pubkey>,
     pool_seed: [u8; 32],
     pool_token_amount: u64,
@@ -669,7 +668,6 @@ pub fn redeem(
     for pool_asset_key in pool_asset_keys.iter() {
         accounts.push(AccountMeta::new(*pool_asset_key, false))
     }
-    accounts.push(AccountMeta::new(*source_owner, true));
     for source_asset_key in target_asset_keys.iter() {
         accounts.push(AccountMeta::new(*source_asset_key, false))
     }
@@ -695,16 +693,16 @@ pub fn create_order(
     coin_vault: &Pubkey,
     pc_vault: &Pubkey,
     spl_token_program: &Pubkey,
-    dex_program:&Pubkey,
+    dex_program: &Pubkey,
     rent_sysvar: &Pubkey,
     srm_referrer_account: Option<&Pubkey>,
-    pool_seed: [u8;32],
+    pool_seed: [u8; 32],
     side: Side,
-    limit_price :NonZeroU64,
-    max_qty:NonZeroU16,
+    limit_price: NonZeroU64,
+    max_qty: NonZeroU16,
     order_type: OrderType,
-    client_id:u64,
-    self_trade_behavior: SelfTradeBehavior
+    client_id: u64,
+    self_trade_behavior: SelfTradeBehavior,
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::CreateOrder {
         pool_seed,
@@ -715,8 +713,9 @@ pub fn create_order(
         client_id,
         self_trade_behavior,
         source_index: payer_pool_asset_index,
-        target_index: target_pool_asset_index
-    }.pack();
+        target_index: target_pool_asset_index,
+    }
+    .pack();
     let mut accounts = vec![
         AccountMeta::new_readonly(*signal_provider, true),
         AccountMeta::new(*market, false),
@@ -729,7 +728,7 @@ pub fn create_order(
         AccountMeta::new(*pc_vault, false),
         AccountMeta::new_readonly(*spl_token_program, false),
         AccountMeta::new_readonly(*rent_sysvar, false),
-        AccountMeta::new_readonly(*dex_program, false)
+        AccountMeta::new_readonly(*dex_program, false),
     ];
     if let Some(key) = srm_referrer_account {
         accounts.push(AccountMeta::new(*key, false));
@@ -737,7 +736,7 @@ pub fn create_order(
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
         accounts,
-        data
+        data,
     })
 }
 
@@ -752,25 +751,26 @@ pub fn cancel_order(
     dex_program: &Pubkey,
     pool_seed: [u8; 32],
     side: Side,
-    order_id: u128
-) -> Result<Instruction, ProgramError>{
+    order_id: u128,
+) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::CancelOrder {
         pool_seed,
         side,
-        order_id
-    }.pack();
+        order_id,
+    }
+    .pack();
     let accounts = vec![
         AccountMeta::new_readonly(*signal_provider, true),
         AccountMeta::new_readonly(*market, false),
         AccountMeta::new(*openorders_account, false),
         AccountMeta::new(*serum_request_queue, false),
         AccountMeta::new_readonly(*pool_account, false),
-        AccountMeta::new_readonly(*dex_program, false)
+        AccountMeta::new_readonly(*dex_program, false),
     ];
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
         accounts,
-        data
+        data,
     })
 }
 
@@ -792,13 +792,14 @@ pub fn settle_funds(
     referrer_pc_account: Option<&Pubkey>,
     pool_seed: [u8; 32],
     pc_index: u64,
-    coin_index: u64
-) -> Result<Instruction, ProgramError>{
+    coin_index: u64,
+) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::SettleFunds {
         pool_seed,
         pc_index,
-        coin_index
-    }.pack();
+        coin_index,
+    }
+    .pack();
 
     let mut accounts = vec![
         AccountMeta::new(*market, false),
@@ -815,9 +816,7 @@ pub fn settle_funds(
         AccountMeta::new_readonly(*dex_program, false),
     ];
     if let Some(key) = referrer_pc_account {
-        accounts.push(
-            AccountMeta::new(*key, false)
-        )
+        accounts.push(AccountMeta::new(*key, false))
     }
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
@@ -883,7 +882,7 @@ mod test {
             client_id: 0xff44,
             self_trade_behavior: SelfTradeBehavior::DecrementTake,
             source_index: 42,
-            target_index: 78
+            target_index: 78,
         };
         let packed_create_order = original_create_order.pack();
         let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();
@@ -906,11 +905,11 @@ mod test {
         let packed_redeem = original_redeem.pack();
         let unpacked_redeem = PoolInstruction::unpack(&packed_redeem).unwrap();
         assert_eq!(original_redeem, unpacked_redeem);
-        
+
         let original_cancel_order = PoolInstruction::CancelOrder {
             pool_seed: [50u8; 32],
             side: Side::Ask,
-            order_id: 855464984
+            order_id: 855464984,
         };
         let packed_cancel_order = original_cancel_order.pack();
         let unpacked_cancel_order = PoolInstruction::unpack(&packed_cancel_order).unwrap();

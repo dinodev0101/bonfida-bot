@@ -2,7 +2,7 @@
 use bonfida_bot::{
     entrypoint::process_instruction,
     instruction::{
-        cancel_order, create, create_order, deposit, init, init_order_tracker, settle_funds,
+        cancel_order, create, create_order, deposit, init, init_order_tracker, redeem, settle_funds,
     },
     state::FIDA_MINT_KEY,
 };
@@ -17,7 +17,9 @@ use solana_program::{
     program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey,
     rent::Rent, system_instruction::create_account, system_program, sysvar,
 };
-use solana_program_test::{find_file, processor, read_file, BanksClient, ProgramTest};
+use solana_program_test::{
+    find_file, processor, read_file, BanksClient, ProgramTest, ProgramTestBanksClientExt,
+};
 use solana_sdk::{
     account::Account, signature::Keypair, signature::Signer, system_instruction,
     transaction::Transaction, transport::TransportError,
@@ -43,7 +45,6 @@ use utils::{
 
 #[tokio::test]
 async fn test_bonfida_bot() {
-    println!("asdasdasd");
     // Create program and test environment
     let program_id = Pubkey::from_str("BonfidaBotPFXCWuBvfkegQfZyiNwAJb9Ss623VQ5DA").unwrap();
     // let serum_program_id = &serum_dex::id();
@@ -473,11 +474,14 @@ async fn test_bonfida_bot() {
     .await
     .unwrap();
     openorder_view = OpenOrderView::get(open_order.pubkey(), &banks_client).await;
-    println!("Open order account after settle before cancel: {:?}", openorder_view);
+    println!(
+        "Open order account after settle before cancel: {:#?}",
+        openorder_view
+    );
 
     let matching_openorder_view = OpenOrderView::get(matching_open_order, &banks_client).await;
     println!(
-        "Matching Open order account after settle: {:?}",
+        "Matching Open order account after settle: {:#?}",
         matching_openorder_view
     );
 
@@ -505,14 +509,79 @@ async fn test_bonfida_bot() {
     .await
     .unwrap();
 
-    serum_market.crank(
-        &serum_program_id,
-        &recent_blockhash,
-        &payer,
-        &banks_client,
-        vec![&open_order.pubkey()]
-    ).await;
-    openorder_view = OpenOrderView::get(open_order.pubkey(), &banks_client).await;
-    println!("Open order account after cancel: {:?}", openorder_view);
+    serum_market
+        .crank(
+            &serum_program_id,
+            &recent_blockhash,
+            &payer,
+            &banks_client,
+            vec![&open_order.pubkey()],
+        )
+        .await;
 
+    // Settle the cancelled order
+    let settle_instruction = settle_funds(
+        &program_id,
+        &serum_market.market_key.pubkey(),
+        &open_order.pubkey(),
+        &order_tracker_key,
+        &pool_key,
+        &mint_key,
+        &serum_market.coin_vault,
+        &serum_market.pc_vault,
+        &pool_asset_keys[2],
+        &pool_asset_keys[1],
+        &serum_market.vault_signer_pk,
+        &spl_token::id(),
+        &serum_program_id,
+        None,
+        pool_seeds,
+        1,
+        2,
+    )
+    .unwrap();
+    wrap_process_transaction(
+        vec![settle_instruction],
+        &payer,
+        vec![],
+        &banks_client
+            .get_new_blockhash(&recent_blockhash)
+            .await
+            .unwrap()
+            .0,
+        &banks_client,
+    )
+    .await
+    .unwrap();
+
+    openorder_view = OpenOrderView::get(open_order.pubkey(), &banks_client).await;
+    println!("Open order account after cancel: {:#?}", openorder_view);
+
+    print_pool_data(&pool_key, &banks_client).await.unwrap();
+
+    // Execute a Redeem instruction
+    let redeem_instruction = redeem(
+        &spl_token::id(),
+        &program_id,
+        &mint_key,
+        &pool_key,
+        &pool_asset_keys,
+        &source_owner.pubkey(),
+        &pooltoken_target_key,
+        &source_asset_keys,
+        pool_seeds,
+        100,
+    )
+    .unwrap();
+    wrap_process_transaction(
+        vec![redeem_instruction],
+        &payer,
+        vec![&source_owner],
+        &recent_blockhash,
+        &banks_client,
+    )
+    .await
+    .unwrap();
+
+    print_pool_data(&pool_key, &banks_client).await.unwrap();
 }
