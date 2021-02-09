@@ -2,7 +2,6 @@ use std::{
     cmp::min,
     convert::TryInto,
     num::{NonZeroU16, NonZeroU64, NonZeroU8},
-    task::Poll,
 };
 
 use crate::{
@@ -877,19 +876,19 @@ impl Processor {
         pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
 
         // TODO: Think about this attack vector when operations are too small to be picked up by this division
-        let (free_source_amount, total_source_amount, free_target_amount) = match order_tracker.side
-        {
-            Side::Bid => (
-                openorders_free_pc,
-                openorders_total_pc,
-                openorders_free_coin,
-            ),
-            Side::Ask => (
-                openorders_free_coin,
-                openorders_total_coin,
-                openorders_free_coin,
-            ),
-        };
+        let (free_source_amount, _total_source_amount, free_target_amount) =
+            match order_tracker.side {
+                Side::Bid => (
+                    openorders_free_pc,
+                    openorders_total_pc,
+                    openorders_free_coin,
+                ),
+                Side::Ask => (
+                    openorders_free_coin,
+                    openorders_total_coin,
+                    openorders_free_coin,
+                ),
+            };
         let source_proportion_of_order = ((free_source_amount as u128) << 64)
             .checked_div(order_tracker.source_total_amount as u128)
             .ok_or(ProgramError::InvalidAccountData)?

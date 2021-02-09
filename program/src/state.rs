@@ -1,6 +1,5 @@
 use serum_dex::matching::Side;
 use solana_program::{
-    msg,
     program_error::ProgramError,
     program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
