@@ -13,3 +13,6 @@ target
 .vscode
 hfuzz*
 third_party/
+
+*/node_modules
+js/lib
