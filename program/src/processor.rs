@@ -73,7 +73,7 @@ impl Processor {
         }
 
         let state_size =
-            PoolHeader::LEN + max_number_of_assets as usize * instruction::MARKET_DATA_SIZE;
+            PoolHeader::LEN + max_number_of_assets as usize * PoolAsset::LEN;
 
         let create_pool_account = create_account(
             &payer_account.key,

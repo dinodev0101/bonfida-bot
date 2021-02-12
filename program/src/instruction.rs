@@ -15,8 +15,6 @@ use std::{
     num::{NonZeroU16, NonZeroU64},
 };
 
-pub const MARKET_DATA_SIZE: usize = 10;
-
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PoolInstruction {
