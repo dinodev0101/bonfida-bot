@@ -1,10 +1,10 @@
 {
-  "name": "vesting-contract-js",
+  "name": "bonfida-bot",
   "version": "0.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bonfida/token-vesting"
+    "url": "https://github.com/bonfida/bonfida-bot"
   },
   "main": "lib/index.cjs.js",
   "module": "lib/index.esm.js",

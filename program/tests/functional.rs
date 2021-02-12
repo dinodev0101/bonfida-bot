@@ -26,6 +26,15 @@ use utils::{
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
 
+#[test]
+fn testitest() {
+    let seeds = [0x47 as u8, 0x08, 0x89, 0xc0, 0xda, 0xc2, 0x77, 0xf0, 0x08, 0x40, 0x78, 0x6c, 0xbf, 0x7a, 0x46, 0xe9, 0x46, 0xb9, 0x5c, 0x17, 0x77, 0xd0, 0x1c, 0x63, 0x75, 0x1c, 0x37, 0x51, 0x91, 0x89, 0xda, 0xfe];
+    let mint_key = Pubkey::create_program_address(&[&seeds, &[1]], &Pubkey::from_str("4n5939p99bGJRCVPtf2kffKftHRjw6xRXQPcozsVDC77").unwrap());
+    println!("{:?}", mint_key.unwrap());
+    // 6pKDEbi26VFuhXM6ua3ykxFZwmzKsryFfkRzjxe7drnR
+}
+
+
 #[tokio::test]
 async fn test_bonfida_bot() {
     // Create program and test environment

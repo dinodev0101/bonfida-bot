@@ -1,13 +1,13 @@
 import { PublicKey, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import { Schedule } from './state';
-import { Numberu32 } from './utils';
+import { Numberu32, Numberu64 } from './utils';
 
 export enum Instruction {
   Init,
   Create,
 }
 
-export function InitInstruction(
+export function initInstruction(
   splTokenProgramId: PublicKey,
   systemProgramId: PublicKey,
   rentProgramId: PublicKey,
@@ -66,7 +66,7 @@ export function InitInstruction(
   });
 }
 
-export function InitOrderInstruction(
+export function initOrderInstruction(
   systemProgramId: PublicKey,
   rentProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
@@ -122,7 +122,7 @@ export function InitOrderInstruction(
   });
 }
 
-export function CreateInstruction(
+export function createInstruction(
   splTokenProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
   mintKey: PublicKey,
@@ -142,7 +142,7 @@ export function CreateInstruction(
   ];
   for (var amount of depositAmounts) {
     // @ts-ignore
-    buffers.push(new Numberu32(amount).toBuffer())
+    buffers.push(new Numberu64(amount).toBuffer())
   }
 
   const data = Buffer.concat(buffers);

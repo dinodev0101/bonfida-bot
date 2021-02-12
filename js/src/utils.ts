@@ -95,104 +95,35 @@ export class Numberu32 extends BN {
   }
 }
 
-// Connection
-
-const ENDPOINTS = {
-  mainnet: 'https://solana-api.projectserum.com',
-  devnet: 'https://devnet.solana.com',
-};
-
-export const connection = new Connection(ENDPOINTS.devnet);
-
-// For accounts imported from Sollet.io
-
-export const getDerivedSeed = (seed: Buffer): Uint8Array => {
-  const derivedSeed = bip32.fromSeed(seed).derivePath(`m/501'/0'/0/0`)
-    .privateKey;
-  return nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
-};
-
-export const getAccountFromSeed = (seed: Buffer): Account => {
-  const derivedSeed = bip32.fromSeed(seed).derivePath(`m/501'/0'/0/0`)
-    .privateKey;
-  return new Account(nacl.sign.keyPair.fromSeed(derivedSeed).secretKey);
-};
-
-// Test params
-
-export const VESTING_PROGRAM_ID: PublicKey = new PublicKey(
-  '5eiTBnbpMsioMR7TbFPLxpj7KLi9c8esrZXYzuW9uEgy',
-);
-
-export const ASSOCIATED_TOKEN_PROGRAM_ID: PublicKey = new PublicKey(
-  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
-);
-
-// Original account
-
-export const walletSeed = Buffer.from('Enter your seed', 'hex');
-
-export const account = getAccountFromSeed(walletSeed);
-
-export const tokenPubkey = new PublicKey('');
-export const mintAddress = new PublicKey('');
-
-// 1st Destination account
-
-export const walletDestinationSeed = Buffer.from('Enter your seed', 'hex');
-
-export const destinationAccount = getAccountFromSeed(walletDestinationSeed);
-
-export const destinationPubkey = new PublicKey('Enter your pubkey');
-
-// 2nd Destination account
-
-export const walletNewDestinationSeed = Buffer.from('Enter your seed', 'hex');
-
-export const newDestinationTokenAccountOwner = new PublicKey(
-  'Enter your pubkey',
-);
-
-export const newDestinationTokenAccount = new PublicKey('Enter your pubkey');
-
-export const schedule: Schedule = new Schedule(
-  new Numberu64(29507188), // Enter the slot height for the vesting schedule
-  new Numberu64(10), // Enter the amount to be vested
-);
-
-export const generateRandomSeed = () => {
-  // Generate a random seed
-  let seed = '';
-  for (let i = 0; i < 64; i++) {
-    seed += Math.floor(Math.random() * 10);
-  }
-  return seed;
-};
-
 export const sleep = (ms: number): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, ms));
 };
 
 // Sign transaction
 
-export const signTransactionInstructions = async (
+export const signAndSendTransactionInstructions = async (
   // sign and send transaction
   connection: Connection,
   signers: Array<Account>,
-  feePayer: PublicKey,
+  feePayer: Account,
   txInstructions: Array<TransactionInstruction>,
 ): Promise<string> => {
   const tx = new Transaction();
-  tx.feePayer = feePayer;
+  tx.feePayer = feePayer.publicKey;
+  signers.push(feePayer); // TODO check with token vesting
   tx.add(...txInstructions);
+  // tx.sign(signers);
   return await connection.sendTransaction(tx, signers, {
     preflightCommitment: 'single',
   });
 };
 
+
+export const ASSOCIATED_TOKEN_PROGRAM_ID: PublicKey = new PublicKey(
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+);
 export const createAssociatedTokenAccount = async (
   systemProgramId: PublicKey,
-  clockSysvarId: PublicKey,
   fundingAddress: PublicKey,
   walletAddress: PublicKey,
   splTokenMintAddress: PublicKey,
@@ -243,4 +174,17 @@ export const createAssociatedTokenAccount = async (
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
     data: Buffer.from([]),
   });
+};
+
+// For accounts imported from Sollet.io
+export const getDerivedSeed = (seed: Buffer): Uint8Array => {
+  const derivedSeed = bip32.fromSeed(seed).derivePath(`m/501'/0'/0/0`)
+    .privateKey;
+  return nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
+};
+
+export const getAccountFromSeed = (seed: Buffer): Account => {
+  const derivedSeed = bip32.fromSeed(seed).derivePath(`m/501'/0'/0/0`)
+    .privateKey;
+  return new Account(nacl.sign.keyPair.fromSeed(derivedSeed).secretKey);
 };
