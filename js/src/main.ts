@@ -11,7 +11,9 @@ import {
 import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
 import {
   createInstruction,
+  depositInstruction,
   initInstruction,
+  Instruction,
 } from './instructions';
 import {
   signAndSendTransactionInstructions,
@@ -19,7 +21,7 @@ import {
   createAssociatedTokenAccount,
   getAccountFromSeed
 } from './utils';
-import { ContractInfo, Schedule, VestingScheduleHeader } from './state';
+import { PoolAsset, PoolHeader, PoolStatus, unpack_assets } from './state';
 import { assert } from 'console';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
@@ -34,7 +36,7 @@ export async function createPool(
   depositAmounts: Array<number>,
   maxNumberOfAssets: number,
   payer: Account,
-): Promise<Uint8Array> {
+): Promise<[Uint8Array, TransactionInstruction[]]> {
 
   // Find a valid pool seed
   let poolSeed: Uint8Array;
@@ -72,7 +74,7 @@ export async function createPool(
       payer.publicKey,
       poolKey,
       [poolSeed],
-      8
+      8 // 4 * real
   );
 
   // Create the pool asset accounts
@@ -123,25 +125,73 @@ export async function createPool(
     signalProviderKey,
     depositAmounts,
   );
-  console.log(createTxInstruction);
   let txInstructions = [initTxInstruction].concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
-  let crashTxInstruction = await createAssociatedTokenAccount(
-    SystemProgram.programId,
-    payer.publicKey,
-    sourceOwnerKey.publicKey,
-    sourceOwnerKey.publicKey
-  );
-  txInstructions.push(crashTxInstruction);
-  await signAndSendTransactionInstructions(
-      connection,
-      [sourceOwnerKey],
-      payer,
-      txInstructions
-  );
 
-  return poolSeed;
+  return [poolSeed, txInstructions];
 }
+
+
+export async function deposit(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  sourceOwnerKey: Account,
+  sourceAssetKeys: Array<PublicKey>,
+  poolTokenAmount: number,
+  poolSeed: Array<Buffer | Uint8Array>,
+  payer: Account,
+): Promise<TransactionInstruction[]> {
+
+  // Find a valid pool seed
+  let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1; 
+  let poolMintKey = await PublicKey.createProgramAddress(poolSeed.concat(array_one), bonfidaBotProgramId);
+
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let poolData = poolInfo.data;
+  let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
+  let poolAssets: Array<PoolAsset> = unpack_assets(poolData.slice(PoolHeader.LEN));
+  let poolAssetKeys: Array<PublicKey> = [];
+  for (var asset of poolAssets) {
+    let assetKey = await findAssociatedTokenAddress(poolKey, asset.mintAddress);
+    poolAssetKeys.push(assetKey);
+  }
+
+  let targetPoolTokenKey = await findAssociatedTokenAddress(
+    sourceOwnerKey.publicKey,
+    poolMintKey
+  );
+  let createTargetTxInstructions: TransactionInstruction[] = [];
+  let targetInfo = await connection.getAccountInfo(targetPoolTokenKey);
+  if (Object.is(targetInfo, null)) {
+    // If nonexistent, create the source owner associated address to receive the pooltokens
+    createTargetTxInstructions.push(await createAssociatedTokenAccount(
+      SystemProgram.programId,
+      payer.publicKey,
+      sourceOwnerKey.publicKey,
+      poolMintKey
+    ));
+  }
+
+  let depositTxInstruction = depositInstruction(
+    TOKEN_PROGRAM_ID,
+    bonfidaBotProgramId,
+    poolMintKey,
+    poolKey,
+    poolAssetKeys,
+    targetPoolTokenKey,
+    sourceOwnerKey.publicKey,
+    sourceAssetKeys,
+    poolSeed,
+    poolTokenAmount
+  )
+  return createTargetTxInstructions.concat(depositTxInstruction)
+}
+
 
 const test = async (): Promise<void> => {
   
@@ -166,19 +216,73 @@ const test = async (): Promise<void> => {
   const signalProviderAccount = sourceOwnerAccount;
   const payerAccount = sourceOwnerAccount;
 
-  // Create Pool
-  let poolSeed = await createPool(
+  // // Create Pool
+  // let [poolSeed, createInstructions] = await createPool(
+  //   connection,
+  //   BONFIDABOT_PROGRAM_ID,
+  //   sourceOwnerAccount,
+  //   sourceAssetKeys,
+  //   signalProviderAccount.publicKey,
+  //   [2000000, 1000000],
+  //   10,
+  //   payerAccount
+  // );
+  let poolSeed = bs58.decode("G8FLCMgTTXddXK9BFEdYgaMwrgpaiq9ERCVjiiVeGDVF");
+  // Pool key: DT5fWFuW3E2c5fidnxnEjdqA7NADSJoyDdarGApSA921
+  // pool mint key: E54UeTspSvfBWjiFeSb9sPNMwMULcRR3GBuMdWXtUiaD
+
+  // Deposit into Pool
+  let depositInstructions = await deposit(
     connection,
     BONFIDABOT_PROGRAM_ID,
     sourceOwnerAccount,
     sourceAssetKeys,
-    signalProviderAccount.publicKey,
-    [2000000, 1],
-    10,
+    1000000,
+    [poolSeed],
     payerAccount
   );
-  console.log('✅ Successfully created pool');
 
+  // Add an instruction that will result in an error for testing
+  /*
+  Results in:
+  Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]
+    Program log: Transfer 2039280 lamports to the associated token account
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program log: Allocate space for the associated token account
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program log: Assign the associated token account to the SPL Token program
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program log: Initialize the associated token account
+    Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]
+    Program log: Instruction: InitializeAccount
+    Program log: Error: Invalid Mint
+    Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 3469 of 169960 compute units
+    Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x2
+    Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 33509 of 200000 compute units
+    Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL BPF VM error: custom program error: 0x2
+    Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL failed: custom program error: 0x2
+  TODO remove
+  */
+  let crashTxInstruction = await createAssociatedTokenAccount(
+    SystemProgram.programId,
+    payerAccount.publicKey,
+    sourceOwnerAccount.publicKey,
+    sourceOwnerAccount.publicKey
+  );
+
+  let instructions: TransactionInstruction[] = depositInstructions;//createInstructions;
+  // instructions = instructions.concat(depositInstructions);
+  instructions.push(crashTxInstruction);
+  
+  await signAndSendTransactionInstructions(
+    connection,
+    [sourceOwnerAccount],
+    payerAccount,
+    instructions
+  );
 };
 
 test();
