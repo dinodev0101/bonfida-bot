@@ -1,0 +1,5 @@
+BPF_OUT_DIR="/home/elliott/bonfida/bonfida-bot/program/target/deploy" HFUZZ_RUN_ARGS="-t 10 -n 1 -N 1000000" cargo hfuzz run bonfida-bot-fuzz
+
+BPF_OUT_DIR="/home/elliott/bonfida/bonfida-bot/program/target/deploy" cargo hfuzz run-debug bonfida-bot-fuzz hfuzz_workspace/*/*.fuzz 
+
+BPF_OUT_DIR="/home/elliott/bonfida/token-vesting/program/target/deploy" HFUZZ_RUN_ARGS="-t 10 -n 1 -N 1000000" cargo hfuzz run bonfida-bot-fuzz

@@ -7,7 +7,7 @@ use serum_dex::{instruction::SelfTradeBehavior, matching::Side};
 use solana_program::{
     program_pack::Pack, pubkey::Pubkey,
 };
-use solana_program_test::{ProgramTest, ProgramTestBanksClientExt, find_file, processor, read_file};
+use solana_program_test::{ProgramTest, ProgramTestBanksClientExt, ProgramTestContext, find_file, processor, read_file};
 use solana_sdk::{account::Account, signature::Keypair, signature::Signer};
 
 use spl_token;
@@ -16,13 +16,13 @@ use std::{
     str::FromStr,
 };
 
-mod utils;
+mod common;
 
-use utils::{
-    add_token_account, create_and_get_associated_token_address, mint_bootstrap,
-    print_pool_data, wrap_process_transaction, OpenOrderView,
-    SerumMarket, TestPool,
-};
+use common::utils::{Context, OpenOrderView, add_token_account, create_and_get_associated_token_address, mint_bootstrap, print_pool_data, wrap_process_transaction};
+
+use common::pool::TestPool;
+
+use common::market::SerumMarket;
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
 
@@ -92,94 +92,78 @@ async fn test_bonfida_bot() {
     let coin_mint = pool.mints[2].key;
 
     // Start and process transactions on the test network
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let test_state = program_test.start_with_context().await;
+
+
+    let mut ctx = Context {
+        bonfidabot_program_id: program_id,
+        serum_program_id: serum_program_id,
+        test_state: test_state,
+    };
 
     let serum_market = SerumMarket::initialize_market_accounts(
-        &serum_program_id,
-        &payer,
+        &ctx,
         &coin_mint,
         &pc_mint,
-        recent_blockhash,
-        &banks_client,
     )
     .await
     .unwrap();
 
     // Initialize the pool
-    pool.setup(&banks_client, &payer, &recent_blockhash).await;
+    pool.setup(&ctx).await;
 
     // Setup pool and source token asset accounts
     let source_asset_keys = pool
         .get_funded_token_accounts(
-            &source_owner.pubkey(),
-            &payer,
-            &recent_blockhash,
-            &banks_client,
+            &ctx,
+            &source_owner.pubkey()
         )
         .await;
 
-    let (initialize_target_pt_account_instruction, pooltoken_target_key) =
-        create_and_get_associated_token_address(
-            &payer.pubkey(),
-            &source_owner.pubkey(),
-            &pool.mint_key,
-        );
-    wrap_process_transaction(
-        vec![initialize_target_pt_account_instruction],
-        &payer,
-        vec![&payer],
-        &recent_blockhash,
-        &banks_client,
-    )
-    .await
-    .unwrap();
+    let pooltoken_target_key = pool.get_pt_account(&ctx, &source_owner.pubkey()).await;
+
     // Execute the create pool instruction
     pool.create(
+        &ctx,
         &pooltoken_target_key,
         &source_owner,
         &source_asset_keys,
         deposit_amounts,
-        &payer,
-        &banks_client,
-        &recent_blockhash,
     )
     .await;
 
-    print_pool_data(&pool.key, &banks_client).await.unwrap();
+    print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 
     pool.deposit(
+        &ctx,
+        5000,
         &pooltoken_target_key,
         &source_owner,
         &source_asset_keys,
-        &payer,
-        &banks_client,
-        &recent_blockhash,
     )
     .await;
 
-    print_pool_data(&pool.key, &banks_client).await.unwrap();
+    print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 
     let order = pool
-        .initialize_new_order(&serum_program_id, &payer, &banks_client, &recent_blockhash)
+        .initialize_new_order(&ctx)
         .await;
 
     // Execute a CreateOrder instruction
     pool.create_new_order(
-        &serum_program_id,
-        &payer,
-        &banks_client,
-        &recent_blockhash,
+        &ctx,
         &serum_market,
         1,
         2,
         &order,
+        Side::Bid,
         NonZeroU64::new(1).unwrap(),
         NonZeroU16::new(1 << 14).unwrap(),
     )
     .await;
 
     let matching_amount_token = spl_token::state::Account::unpack(
-        &banks_client
+        &ctx.test_state.banks_client
             .get_account(pool.mints[1].pool_asset_key)
             .await
             .unwrap()
@@ -193,17 +177,14 @@ async fn test_bonfida_bot() {
         serum_market.coin_lot_size * matching_amount_token / (serum_market.pc_lot_size * 1); // 1 is price
     println!("Lots to trade for match: {:?}", lots_to_trade);
 
-    print_pool_data(&pool.key, &banks_client).await.unwrap();
+    print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 
-    let mut openorder_view = OpenOrderView::get(order.open_orders_account, &banks_client).await;
+    let mut openorder_view = OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;
 
     println!("Open order account before trade: {:?}", openorder_view);
     let matching_open_order = serum_market
         .match_and_crank_order(
-            &serum_program_id,
-            &payer,
-            recent_blockhash,
-            &banks_client,
+            &ctx,
             Side::Bid,
             NonZeroU64::new(2).unwrap(),
             NonZeroU64::new(lots_to_trade).unwrap(),
@@ -216,10 +197,7 @@ async fn test_bonfida_bot() {
 
     // Execute a Settle instruction
     pool.settle(
-        &serum_program_id,
-        &payer,
-        &banks_client,
-        &recent_blockhash,
+        &ctx,
         &serum_market,
         2,
         1,
@@ -227,24 +205,23 @@ async fn test_bonfida_bot() {
     )
     .await;
 
-    openorder_view = OpenOrderView::get(order.open_orders_account, &banks_client).await;
+    openorder_view = OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;
     println!(
-        "Open order account after settle before cancel: {:#?}",
+        "Open order account after settle before cancel: {:?}",
         openorder_view
     );
 
-    let matching_openorder_view = OpenOrderView::get(matching_open_order, &banks_client).await;
+    let matching_openorder_view = OpenOrderView::get(matching_open_order, &ctx.test_state.banks_client).await;
     println!(
-        "Matching Open order account after settle: {:#?}",
+        "Matching Open order account after settle: {:?}",
         matching_openorder_view
     );
+    
+    ctx.refresh_blockhash().await;
 
     // Execute a Cancel order instruction on the original, partially settled, order
     pool.cancel_order(
-        &serum_program_id,
-        &payer,
-        &banks_client,
-        &recent_blockhash,
+        &ctx,
         &serum_market,
         &order,
     )
@@ -252,20 +229,15 @@ async fn test_bonfida_bot() {
 
     serum_market
         .crank(
-            &serum_program_id,
-            &recent_blockhash,
-            &payer,
-            &banks_client,
+            &ctx,
             vec![&order.open_orders_account],
         )
         .await;
 
+
     // Settle the cancelled order
     pool.settle(
-        &serum_program_id,
-        &payer,
-        &banks_client.to_owned(),
-        &banks_client.get_new_blockhash(&recent_blockhash).await.unwrap().0,
+        &ctx,
         &serum_market,
         2,
         1,
@@ -273,13 +245,13 @@ async fn test_bonfida_bot() {
     )
     .await;
 
-    openorder_view = OpenOrderView::get(order.open_orders_account, &banks_client).await;
-    println!("Open order account after cancel: {:#?}", openorder_view);
+    openorder_view = OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;
+    println!("Open order account after cancel: {:?}", openorder_view);
 
-    print_pool_data(&pool.key, &banks_client).await.unwrap();
+    print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 
     // Execute a Redeem instruction
-    pool.redeem(&payer, &source_owner, &banks_client, &recent_blockhash, &pooltoken_target_key, &source_asset_keys).await;
+    pool.redeem(&ctx, 100, &source_owner, &pooltoken_target_key, &source_asset_keys).await;
 
-    print_pool_data(&pool.key, &banks_client).await.unwrap();
+    print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 }

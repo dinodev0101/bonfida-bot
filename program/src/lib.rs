@@ -8,3 +8,7 @@ pub mod state;
 pub mod utils;
 
 pub mod processor;
+
+#[cfg(feature = "fuzz")]
+#[path = "../tests/common/mod.rs"]
+pub mod common;
