@@ -2,26 +2,33 @@ import {
   Account,
   PublicKey,
   SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
-  SYSVAR_CLOCK_PUBKEY,
   TransactionInstruction,
   Connection,
   sendAndConfirmTransaction,
+  SystemInstruction,
+  CreateAccountParams,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
+import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT } from '@project-serum/serum';
 import {
   createInstruction,
+  createOrderInstruction,
   depositInstruction,
   initInstruction,
+  initOrderInstruction,
   Instruction,
 } from './instructions';
 import {
   signAndSendTransactionInstructions,
   findAssociatedTokenAddress,
   createAssociatedTokenAccount,
-  getAccountFromSeed
+  getAccountFromSeed,
+  Numberu64,
+  Numberu16
 } from './utils';
-import { PoolAsset, PoolHeader, PoolStatus, unpack_assets } from './state';
+import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
 import { assert } from 'console';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
@@ -142,7 +149,7 @@ export async function deposit(
   payer: Account,
 ): Promise<TransactionInstruction[]> {
 
-  // Find a valid pool seed
+  // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
   let array_one = new Uint8Array(1);
   array_one[0] = 1; 
@@ -192,6 +199,105 @@ export async function deposit(
   return createTargetTxInstructions.concat(depositTxInstruction)
 }
 
+export async function createOrder(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  serumProgramId: PublicKey,
+  poolSeed: Buffer | Uint8Array,
+  market: PublicKey,
+  side: OrderSide,
+  sourceMintKey: PublicKey,
+  targetMintKey: PublicKey,
+  limitPrice: Numberu64,
+  maxQuantity: Numberu16,
+  orderType: OrderType,
+  clientId: Numberu64,
+  selfTradeBehavior: SelfTradeBehavior,
+  
+  serumRequestQueue: PublicKey,
+  coinVaultKey: PublicKey,
+  pcVaultKey: PublicKey,
+  srmReferrerKey: PublicKey | null,
+  payer: Account
+): Promise<[Account, TransactionInstruction[]]> {
+  // Find the pool key
+  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0,PoolHeader.LEN)).signalProvider;
+
+  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
+  // @ts-ignore
+  let sourcePoolAssetIndex = new Numberu64(poolAssets.map(a => {return a.mintAddress.toString()}).indexOf(sourceMintKey.toString()));
+
+  let sourcePoolAssetKey = await findAssociatedTokenAddress(
+    poolKey,
+    sourceMintKey
+  );
+  // @ts-ignore
+  let targetPoolAssetIndex = new Numberu64(poolAssets.map(a => {return a.mintAddress}).indexOf(sourceMintKey));
+
+  // Create the open order account with trhe serum specific size of 3228 bits
+  let rent = await connection.getMinimumBalanceForRentExemption(3228);
+  let openOrderAccount = new Account();
+  let openOrdersKey = openOrderAccount.publicKey;
+  let createAccountParams: CreateAccountParams = {
+    fromPubkey: payer.publicKey,
+    newAccountPubkey: openOrdersKey,
+    lamports: rent,
+    space: 3228, //TODO get rid of the magic numbers
+    programId: serumProgramId
+  };
+  let createOpenOrderAccountInstruction = SystemProgram.createAccount(createAccountParams)
+
+  let orderTrackerKey = (await PublicKey.findProgramAddress([poolSeed, openOrdersKey.toBuffer()], bonfidaBotProgramId))[0];
+  let initOrderTxInstruction = initOrderInstruction(
+    SystemProgram.programId,
+    SYSVAR_RENT_PUBKEY,
+    bonfidaBotProgramId,
+    orderTrackerKey,
+    openOrdersKey,
+    payer.publicKey,
+    poolKey,
+    [poolSeed]
+  );
+
+  let createOrderTxInstruction = createOrderInstruction(
+    bonfidaBotProgramId,
+    signalProviderKey,
+    market,
+    sourcePoolAssetKey,
+    sourcePoolAssetIndex,
+    targetPoolAssetIndex,
+    openOrdersKey,
+    orderTrackerKey,
+    serumRequestQueue,
+    poolKey,
+    coinVaultKey,
+    pcVaultKey,
+    TOKEN_PROGRAM_ID,
+    serumProgramId,
+    SYSVAR_RENT_PUBKEY,
+    srmReferrerKey,
+    [poolSeed],
+    side,
+    limitPrice,
+    maxQuantity,
+    orderType,
+    clientId,
+    selfTradeBehavior
+  );
+
+  return [openOrderAccount, [
+    createOpenOrderAccountInstruction,
+    initOrderTxInstruction,
+    createOrderTxInstruction
+  ]]
+}
+
 
 const test = async (): Promise<void> => {
   
@@ -204,6 +310,24 @@ const test = async (): Promise<void> => {
 
   const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
     "4n5939p99bGJRCVPtf2kffKftHRjw6xRXQPcozsVDC77", //'EfUL1dkbEXE5UbjuZpR3ckoF4a8UCuhCVXbzTFmgQoqA', on devnet
+  );
+
+  const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
+    "EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o",
+  );
+  
+  const FIDA_KEY: PublicKey = new PublicKey(
+    "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp",
+  );
+  const FIDA_VAULT_KEY: PublicKey = new PublicKey(
+    "Hoh5ocM73zN8RrjfgkY7SwdMnj3CXy3kDZpK4A5nLg3k",
+  );
+
+  const USDC_KEY: PublicKey = new PublicKey(
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  );
+  const USDC_VAULT_KEY: PublicKey = new PublicKey(
+    "4XzLuVzzSbYYq1ZJvoWaUWm5kAHZNEuaxqLKNPoYUHPi",
   );
 
   // Accounts to use for test
@@ -242,6 +366,40 @@ const test = async (): Promise<void> => {
     payerAccount
   );
 
+  // Create a FIDA to USDC order
+  let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("FIDA/USDC")];
+  if (marketInfo.deprecated) {throw "Create order market is deprecated"};
+
+  let marketAccountInfo = await connection.getAccountInfo(marketInfo.address);
+  if (!marketAccountInfo) {
+    throw 'Market account is unavailable';
+  }
+  let requestQueueKey = new PublicKey(marketAccountInfo.data.slice(221, 253));
+
+  let [openOrderAccount, createOrderTxInstructions] = await createOrder(
+    connection,
+    BONFIDABOT_PROGRAM_ID,
+    SERUM_PROGRAM_ID,
+    poolSeed,
+    marketInfo.address,
+    OrderSide.Ask,
+    FIDA_KEY,
+    USDC_KEY,
+    // @ts-ignore
+    new Numberu64(10000), //TODO get from Serum
+    // @ts-ignore
+    new Numberu16(1<<15), //TODO
+    OrderType.Limit,
+    // @ts-ignore
+    new Numberu64(0),
+    SelfTradeBehavior.DecrementTake,
+    requestQueueKey,
+    FIDA_VAULT_KEY,
+    USDC_VAULT_KEY,
+    null, // Self referring
+    payerAccount
+  );
+
   // Add an instruction that will result in an error for testing
   /*
   Results in:
@@ -273,13 +431,13 @@ const test = async (): Promise<void> => {
     sourceOwnerAccount.publicKey
   );
 
-  let instructions: TransactionInstruction[] = depositInstructions;//createInstructions;
-  // instructions = instructions.concat(depositInstructions);
+  let instructions: TransactionInstruction[] = depositInstructions;
+  instructions = instructions.concat(createOrderTxInstructions);
   instructions.push(crashTxInstruction);
   
   await signAndSendTransactionInstructions(
     connection,
-    [sourceOwnerAccount],
+    [sourceOwnerAccount, openOrderAccount, signalProviderAccount],
     payerAccount,
     instructions
   );

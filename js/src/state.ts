@@ -1,6 +1,22 @@
 import { PublicKey } from '@solana/web3.js';
 import { Numberu64 } from './utils';
 
+
+// Serum analog types
+export enum OrderSide {
+  Bid,
+  Ask
+}
+export enum OrderType {
+  Limit,
+  ImmediateOrCancel,
+  PostOnly,
+}
+export enum SelfTradeBehavior {
+  DecrementTake,
+  CancelProvide,
+}
+
 const STATUS_PENDING_ORDER_FLAG: number = 1 << 6;
 const STATUS_PENDING_ORDER_MASK: number = 0x3f;
 const STATUS_LOCKED_FLAG: number = 2 << 6;
