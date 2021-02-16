@@ -370,7 +370,111 @@ export function createOrderInstruction(
     keys.push({
       pubkey: srmReferrerKey,
       isSigner: false,
+      isWritable: true,
+    });
+  }
+
+  return new TransactionInstruction({
+    keys,
+    programId: bonfidaBotProgramId,
+    data,
+  });
+}
+
+export function settleFundsInstruction(
+  bonfidaBotProgramId: PublicKey,
+  market: PublicKey,
+  openOrdersKey: PublicKey,
+  orderTrackerKey: PublicKey,
+  poolKey: PublicKey,
+  poolMintKey: PublicKey,
+  coinVaultKey: PublicKey,
+  pcVaultKey: PublicKey,
+  coinPoolAssetKey: PublicKey,
+  pcPoolAssetKey: PublicKey,
+  vaultSignerKey: PublicKey,
+  splTokenProgramId: PublicKey,
+  dexProgramKey: PublicKey,
+  srmReferrerKey: PublicKey | null,
+  poolSeed: Array<Buffer | Uint8Array>,
+  pcPoolAssetIndex: Numberu64,
+  coinPoolAssetIndex: Numberu64,
+): TransactionInstruction {
+  let buffers = [
+    Buffer.from(Int8Array.from([6])),
+    Buffer.concat(poolSeed),
+    pcPoolAssetIndex.toBuffer(),
+    coinPoolAssetIndex.toBuffer(),
+  ];
+  const data = Buffer.concat(buffers);
+
+  const keys = [
+    {
+      pubkey: market,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: openOrdersKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: orderTrackerKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: poolKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: poolMintKey,
+      isSigner: false,
       isWritable: false,
+    },
+    {
+      pubkey: coinVaultKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: pcVaultKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: coinPoolAssetKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: pcPoolAssetKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: vaultSignerKey,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: splTokenProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: dexProgramKey,
+      isSigner: false,
+      isWritable: false,
+    },
+  ];
+  if (!!srmReferrerKey) {
+    keys.push({
+      pubkey: srmReferrerKey,
+      isSigner: false,
+      isWritable: true,
     });
   }
 

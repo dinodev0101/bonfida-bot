@@ -19,6 +19,7 @@ import {
   initInstruction,
   initOrderInstruction,
   Instruction,
+  settleFundsInstruction,
 } from './instructions';
 import {
   signAndSendTransactionInstructions,
@@ -26,7 +27,8 @@ import {
   createAssociatedTokenAccount,
   getAccountFromSeed,
   Numberu64,
-  Numberu16
+  Numberu16,
+  getMarketData
 } from './utils';
 import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
 import { assert } from 'console';
@@ -81,7 +83,7 @@ export async function createPool(
       payer.publicKey,
       poolKey,
       [poolSeed],
-      8 // 4 * real
+      4 * maxNumberOfAssets //TODO 4 * real 
   );
 
   // Create the pool asset accounts
@@ -206,19 +208,13 @@ export async function createOrder(
   poolSeed: Buffer | Uint8Array,
   market: PublicKey,
   side: OrderSide,
-  sourceMintKey: PublicKey,
-  targetMintKey: PublicKey,
   limitPrice: Numberu64,
   maxQuantity: Numberu16,
   orderType: OrderType,
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior,
-  
-  serumRequestQueue: PublicKey,
-  coinVaultKey: PublicKey,
-  pcVaultKey: PublicKey,
   srmReferrerKey: PublicKey | null,
-  payer: Account
+  payerKey: PublicKey
 ): Promise<[Account, TransactionInstruction[]]> {
   // Find the pool key
   let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
@@ -229,23 +225,40 @@ export async function createOrder(
   }
   let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0,PoolHeader.LEN)).signalProvider;
 
+  let marketData = await getMarketData(connection, market)
+  let sourceMintKey: PublicKey;
+  let targetMintKey: PublicKey;
+  if (side == OrderSide.Ask) {
+    sourceMintKey = marketData.coinMintKey;
+    targetMintKey = marketData.pcMintKey;
+  } else {
+    sourceMintKey = marketData.pcMintKey;
+    targetMintKey = marketData.coinMintKey;
+  }
+
   let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
   // @ts-ignore
-  let sourcePoolAssetIndex = new Numberu64(poolAssets.map(a => {return a.mintAddress.toString()}).indexOf(sourceMintKey.toString()));
-
+  let sourcePoolAssetIndex = new Numberu64(poolAssets
+    .map(a => {return a.mintAddress.toString()})
+    .indexOf(sourceMintKey.toString())
+  );
   let sourcePoolAssetKey = await findAssociatedTokenAddress(
     poolKey,
     sourceMintKey
   );
+
   // @ts-ignore
-  let targetPoolAssetIndex = new Numberu64(poolAssets.map(a => {return a.mintAddress}).indexOf(sourceMintKey));
+  let targetPoolAssetIndex = new Numberu64(poolAssets
+    .map(a => {return a.mintAddress.toString()})
+    .indexOf(targetMintKey.toString())
+  );
 
   // Create the open order account with trhe serum specific size of 3228 bits
   let rent = await connection.getMinimumBalanceForRentExemption(3228);
   let openOrderAccount = new Account();
   let openOrdersKey = openOrderAccount.publicKey;
   let createAccountParams: CreateAccountParams = {
-    fromPubkey: payer.publicKey,
+    fromPubkey: payerKey,
     newAccountPubkey: openOrdersKey,
     lamports: rent,
     space: 3228, //TODO get rid of the magic numbers
@@ -260,7 +273,7 @@ export async function createOrder(
     bonfidaBotProgramId,
     orderTrackerKey,
     openOrdersKey,
-    payer.publicKey,
+    payerKey,
     poolKey,
     [poolSeed]
   );
@@ -274,10 +287,10 @@ export async function createOrder(
     targetPoolAssetIndex,
     openOrdersKey,
     orderTrackerKey,
-    serumRequestQueue,
+    marketData.reqQueueKey,
     poolKey,
-    coinVaultKey,
-    pcVaultKey,
+    marketData.coinVaultKey,
+    marketData.pcVaultKey,
     TOKEN_PROGRAM_ID,
     serumProgramId,
     SYSVAR_RENT_PUBKEY,
@@ -298,6 +311,79 @@ export async function createOrder(
   ]]
 }
 
+//TODO minimize binding arg count
+
+export async function settleFunds(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  dexProgramKey: PublicKey,
+  poolSeed: Buffer | Uint8Array,
+  market: PublicKey,
+  openOrdersKey: PublicKey,
+  srmReferrerKey: PublicKey | null,
+): Promise<TransactionInstruction[]> {
+
+  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1; 
+  let poolMintKey = await PublicKey.createProgramAddress([poolSeed, array_one], bonfidaBotProgramId);
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let orderTrackerKey = (await PublicKey.findProgramAddress([poolSeed, openOrdersKey.toBuffer()], bonfidaBotProgramId))[0];
+  let marketData = await getMarketData(connection, market);
+  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
+
+  // @ts-ignore
+  let coinPoolAssetIndex = new Numberu64(poolAssets
+    .map(a => {return a.mintAddress.toString()})
+    .indexOf(marketData.coinMintKey.toString())
+  );
+  let coinPoolAssetKey = await findAssociatedTokenAddress(
+    poolKey,
+    marketData.coinMintKey
+  );
+  // @ts-ignore
+  let pcPoolAssetIndex = new Numberu64(poolAssets
+    .map(a => {return a.mintAddress.toString()})
+    .indexOf(marketData.pcMintKey.toString())
+  );
+  let pcPoolAssetKey = await findAssociatedTokenAddress(
+    poolKey,
+    marketData.pcMintKey
+  );
+
+  let vaultSignerKey = await PublicKey.createProgramAddress(
+    [market.toBuffer(), marketData.vaultSignerNonce.toBuffer()],
+    dexProgramKey
+  );
+
+  let settleFundsTxInstruction = settleFundsInstruction(
+    bonfidaBotProgramId,
+    market,
+    openOrdersKey,
+    orderTrackerKey,
+    poolKey,
+    poolMintKey,
+    marketData.coinVaultKey,
+    marketData.pcVaultKey,
+    coinPoolAssetKey,
+    pcPoolAssetKey,
+    vaultSignerKey,
+    TOKEN_PROGRAM_ID,
+    dexProgramKey,
+    srmReferrerKey,
+    [poolSeed],
+    pcPoolAssetIndex,
+    coinPoolAssetIndex,
+  )
+
+  return [settleFundsTxInstruction]
+}
+
+// TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy  
+// TODO Check out coin/pc vs source/target in program instructions
 
 const test = async (): Promise<void> => {
   
@@ -369,12 +455,7 @@ const test = async (): Promise<void> => {
   // Create a FIDA to USDC order
   let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("FIDA/USDC")];
   if (marketInfo.deprecated) {throw "Create order market is deprecated"};
-
-  let marketAccountInfo = await connection.getAccountInfo(marketInfo.address);
-  if (!marketAccountInfo) {
-    throw 'Market account is unavailable';
-  }
-  let requestQueueKey = new PublicKey(marketAccountInfo.data.slice(221, 253));
+  let marketData = await getMarketData(connection, marketInfo.address);
 
   let [openOrderAccount, createOrderTxInstructions] = await createOrder(
     connection,
@@ -383,21 +464,26 @@ const test = async (): Promise<void> => {
     poolSeed,
     marketInfo.address,
     OrderSide.Ask,
-    FIDA_KEY,
-    USDC_KEY,
     // @ts-ignore
-    new Numberu64(10000), //TODO get from Serum
+    new Numberu64(10000),
     // @ts-ignore
-    new Numberu16(1<<15), //TODO
+    new Numberu16(1<<15),
     OrderType.Limit,
     // @ts-ignore
     new Numberu64(0),
     SelfTradeBehavior.DecrementTake,
-    requestQueueKey,
-    FIDA_VAULT_KEY,
-    USDC_VAULT_KEY,
     null, // Self referring
-    payerAccount
+    payerAccount.publicKey
+  );
+
+  let settleFundsTxInstructions = await settleFunds(
+    connection,
+    BONFIDABOT_PROGRAM_ID,
+    SERUM_PROGRAM_ID,
+    poolSeed,
+    marketInfo.address,
+    openOrderAccount.publicKey,
+    payerAccount.publicKey
   );
 
   // Add an instruction that will result in an error for testing
@@ -433,6 +519,7 @@ const test = async (): Promise<void> => {
 
   let instructions: TransactionInstruction[] = depositInstructions;
   instructions = instructions.concat(createOrderTxInstructions);
+  instructions = instructions.concat(settleFundsTxInstructions);
   instructions.push(crashTxInstruction);
   
   await signAndSendTransactionInstructions(

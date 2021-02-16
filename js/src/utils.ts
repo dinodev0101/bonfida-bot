@@ -14,6 +14,7 @@ import {
 } from '@solana/web3.js';
 import { Schedule } from './state';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { type } from 'os';
 
 export async function findAssociatedTokenAddress(
   walletAddress: PublicKey,
@@ -29,6 +30,33 @@ export async function findAssociatedTokenAddress(
       ASSOCIATED_TOKEN_PROGRAM_ID,
     )
   )[0];
+}
+
+export type MarketData = {
+  address: PublicKey,
+  coinMintKey: PublicKey,
+  pcMintKey: PublicKey,
+  coinVaultKey: PublicKey
+  pcVaultKey: PublicKey,
+  vaultSignerNonce: Numberu64,
+  reqQueueKey: PublicKey,
+}
+
+export async function getMarketData(connection:Connection, marketKey: PublicKey): Promise<MarketData> {
+  let marketAccountInfo = await connection.getAccountInfo(marketKey);
+  if (!marketAccountInfo) {
+    throw 'Market account is unavailable';
+  }
+  let marketData = {
+    adress: marketKey,
+    coinMintKey: new PublicKey(marketAccountInfo.data.slice(53, 85)),
+    pcMintKey: new PublicKey(marketAccountInfo.data.slice(85, 117)),
+    coinVaultKey: new PublicKey(marketAccountInfo.data.slice(117, 149)),
+    pcVaultKey: new PublicKey(marketAccountInfo.data.slice(165, 197)),
+    vaultSignerNonce: new PublicKey(marketAccountInfo.data.slice(45, 53)),
+    reqQueueKey: new PublicKey(marketAccountInfo.data.slice(221, 253)),
+  }
+  return marketData;
 }
 
 export class Numberu16 extends BN {

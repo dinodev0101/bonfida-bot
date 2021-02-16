@@ -810,7 +810,7 @@ pub fn settle_funds(
         AccountMeta::new(*pool_coin_wallet, false),
         AccountMeta::new(*pool_pc_wallet, false),
         AccountMeta::new_readonly(*vault_signer, false),
-        AccountMeta::new(*spl_token_program, false), //TODO set as readonly
+        AccountMeta::new_readonly(*spl_token_program, false),
         AccountMeta::new_readonly(*dex_program, false),
     ];
     if let Some(key) = referrer_pc_account {
