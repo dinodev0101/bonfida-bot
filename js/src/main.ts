@@ -11,8 +11,9 @@ import {
   CreateAccountParams,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
-import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT } from '@project-serum/serum';
+import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT, OpenOrders } from '@project-serum/serum';
 import {
+  cancelOrderInstruction,
   createInstruction,
   createOrderInstruction,
   depositInstruction,
@@ -28,12 +29,14 @@ import {
   getAccountFromSeed,
   Numberu64,
   Numberu16,
-  getMarketData
+  getMarketData,
+  Numberu128,
 } from './utils';
 import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
 import { assert } from 'console';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
+import { Order } from '@project-serum/serum/lib/market';
 
 
 export async function createPool(
@@ -146,7 +149,7 @@ export async function deposit(
   bonfidaBotProgramId: PublicKey,
   sourceOwnerKey: Account,
   sourceAssetKeys: Array<PublicKey>,
-  poolTokenAmount: number,
+  poolTokenAmount: Numberu64,
   poolSeed: Array<Buffer | Uint8Array>,
   payer: Account,
 ): Promise<TransactionInstruction[]> {
@@ -304,14 +307,12 @@ export async function createOrder(
     selfTradeBehavior
   );
 
-  return [openOrderAccount, [
-    createOpenOrderAccountInstruction,
+  return [openOrderAccount, 
+    [createOpenOrderAccountInstruction,
     initOrderTxInstruction,
-    createOrderTxInstruction
-  ]]
+    createOrderTxInstruction]
+  ]
 }
-
-//TODO minimize binding arg count
 
 export async function settleFunds(
   connection: Connection,
@@ -332,6 +333,7 @@ export async function settleFunds(
     throw 'Pool account is unavailable';
   }
   let orderTrackerKey = (await PublicKey.findProgramAddress([poolSeed, openOrdersKey.toBuffer()], bonfidaBotProgramId))[0];
+  console.log("Order tracker key", orderTrackerKey.toString());
   let marketData = await getMarketData(connection, market);
   let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
 
@@ -380,6 +382,87 @@ export async function settleFunds(
   )
 
   return [settleFundsTxInstruction]
+}
+
+export async function cancelOrder(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  dexProgramKey: PublicKey,
+  poolSeed: Buffer | Uint8Array,
+  market: PublicKey,
+  openOrdersKey: PublicKey,
+  orderId: Numberu128
+): Promise<TransactionInstruction[]> {
+  // Find the pool key
+  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0,PoolHeader.LEN)).signalProvider;
+  let marketData = await getMarketData(connection, market);
+
+  let side = Number(orderId) & (1 << 64);
+
+  let cancelOrderTxInstruction = await cancelOrderInstruction(
+    bonfidaBotProgramId,
+    signalProviderKey,
+    market,
+    openOrdersKey,
+    marketData.reqQueueKey,
+    poolKey,
+    dexProgramKey,
+    [poolSeed],
+    side,
+    orderId
+  );
+
+  return [cancelOrderTxInstruction];
+}
+
+export async function redeem(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  sourcePoolTokenOwnerKey: PublicKey,
+  sourcePoolTokenKey: PublicKey,
+  targetAssetKeys: Array<PublicKey>,
+  poolSeed: Array<Buffer | Uint8Array>,
+  poolTokenAmount: Numberu64,
+): Promise<TransactionInstruction[]> {
+
+  // Find the pool key and mint key
+  let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1;
+  let poolMintKey = await PublicKey.createProgramAddress(poolSeed.concat(array_one), bonfidaBotProgramId);
+
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let poolData = poolInfo.data;
+  let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
+  let poolAssets: Array<PoolAsset> = unpack_assets(poolData.slice(PoolHeader.LEN));
+  let poolAssetKeys: Array<PublicKey> = [];
+  for (var asset of poolAssets) {
+    let assetKey = await findAssociatedTokenAddress(poolKey, asset.mintAddress);
+    poolAssetKeys.push(assetKey);
+  }
+
+  let redeemTxInstruction = depositInstruction(
+    TOKEN_PROGRAM_ID,
+    bonfidaBotProgramId,
+    poolMintKey,
+    poolKey,
+    poolAssetKeys,
+    sourcePoolTokenOwnerKey,
+    sourcePoolTokenKey,
+    targetAssetKeys,
+    poolSeed,
+    poolTokenAmount,
+  )
+  return [redeemTxInstruction]
 }
 
 // TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy  
@@ -442,49 +525,100 @@ const test = async (): Promise<void> => {
   // pool mint key: E54UeTspSvfBWjiFeSb9sPNMwMULcRR3GBuMdWXtUiaD
 
   // Deposit into Pool
-  let depositInstructions = await deposit(
-    connection,
-    BONFIDABOT_PROGRAM_ID,
-    sourceOwnerAccount,
-    sourceAssetKeys,
-    1000000,
-    [poolSeed],
-    payerAccount
-  );
+  // let depositTxInstructions = await deposit(
+  //   connection,
+  //   BONFIDABOT_PROGRAM_ID,
+  //   sourceOwnerAccount,
+  //   sourceAssetKeys,
+  //   // @ts-ignore
+  //   new Numberu64(1000000),
+  //   [poolSeed],
+  //   payerAccount
+  // );
 
   // Create a FIDA to USDC order
   let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("FIDA/USDC")];
   if (marketInfo.deprecated) {throw "Create order market is deprecated"};
   let marketData = await getMarketData(connection, marketInfo.address);
 
-  let [openOrderAccount, createOrderTxInstructions] = await createOrder(
+  // let [openOrderAccount, createOrderTxInstructions] = await createOrder(
+  //   connection,
+  //   BONFIDABOT_PROGRAM_ID,
+  //   SERUM_PROGRAM_ID,
+  //   poolSeed,
+  //   marketInfo.address,
+  //   OrderSide.Ask,
+  //   // @ts-ignore
+  //   new Numberu64(10000),
+  //   // @ts-ignore
+  //   new Numberu16(1<<15),
+  //   OrderType.Limit,
+  //   // @ts-ignore
+  //   new Numberu64(0),
+  //   SelfTradeBehavior.DecrementTake,
+  //   null, // Self referring
+  //   payerAccount.publicKey
+  // );
+  // await signAndSendTransactionInstructions(
+  //   connection,
+  //   [sourceOwnerAccount, openOrderAccount, signalProviderAccount],
+  //   payerAccount,
+  //   depositTxInstructions.concat(createOrderTxInstructions)
+  // );
+
+  let openOrder = new PublicKey("4rHBgrYgiN9ibuFghzBheMJRtYrP2zcGZTrGNt8SM1cw");
+  let openOrders = await OpenOrders.load(connection, openOrder, SERUM_PROGRAM_ID); //openOrderAccount.publicKey
+  let orders = (openOrders).orders;
+  // console.log("orders", orders)
+  let orderId = orders[-1];
+  // if (orderId == new Numberu128(0)) {
+  //    throw "No orders found in Openorder account."
+  // }
+  // let cancelOrderTxInstruction = await cancelOrder(
+  //   connection,
+  //   BONFIDABOT_PROGRAM_ID,
+  //   SERUM_PROGRAM_ID,
+  //   poolSeed,
+  //   marketInfo.address,
+  //   openOrder,
+  //   orderId
+  // );
+  let settleFundsTxInstructions = await settleFunds(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      poolSeed,
+      marketInfo.address,
+      openOrder,
+      payerAccount.publicKey
+  );
+  await signAndSendTransactionInstructions(
     connection,
-    BONFIDABOT_PROGRAM_ID,
-    SERUM_PROGRAM_ID,
-    poolSeed,
-    marketInfo.address,
-    OrderSide.Ask,
-    // @ts-ignore
-    new Numberu64(10000),
-    // @ts-ignore
-    new Numberu16(1<<15),
-    OrderType.Limit,
-    // @ts-ignore
-    new Numberu64(0),
-    SelfTradeBehavior.DecrementTake,
-    null, // Self referring
-    payerAccount.publicKey
+    [signalProviderAccount],
+    payerAccount,
+    settleFundsTxInstructions
   );
 
-  let settleFundsTxInstructions = await settleFunds(
-    connection,
-    BONFIDABOT_PROGRAM_ID,
-    SERUM_PROGRAM_ID,
-    poolSeed,
-    marketInfo.address,
-    openOrderAccount.publicKey,
-    payerAccount.publicKey
-  );
+
+
+  // let sourcePoolTokenKey = new PublicKey("77FK8kfFzaRz3e7fLe8Fy7GJNnGUXRJstMmnLhHdCqPt");
+  // let redeemTxInstruction = await redeem(
+  //   connection,
+  //   BONFIDABOT_PROGRAM_ID,
+  //   sourceOwnerAccount.publicKey,
+  //   sourcePoolTokenKey,
+  //   sourceAssetKeys,
+  //   [poolSeed],
+  //   // @ts-ignore
+  //   new Numberu64(1000000)
+  // );
+  // await signAndSendTransactionInstructions(
+  //   connection,
+  //   [sourceOwnerAccount],
+  //   payerAccount,
+  //   redeemTxInstruction
+  // );
+  
 
   // Add an instruction that will result in an error for testing
   /*
@@ -510,24 +644,26 @@ const test = async (): Promise<void> => {
     Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL failed: custom program error: 0x2
   TODO remove
   */
-  let crashTxInstruction = await createAssociatedTokenAccount(
-    SystemProgram.programId,
-    payerAccount.publicKey,
-    sourceOwnerAccount.publicKey,
-    sourceOwnerAccount.publicKey
-  );
+  // let crashTxInstruction = await createAssociatedTokenAccount(
+  //   SystemProgram.programId,
+  //   payerAccount.publicKey,
+  //   sourceOwnerAccount.publicKey,
+  //   sourceOwnerAccount.publicKey
+  // );
 
-  let instructions: TransactionInstruction[] = depositInstructions;
-  instructions = instructions.concat(createOrderTxInstructions);
-  instructions = instructions.concat(settleFundsTxInstructions);
-  instructions.push(crashTxInstruction);
+  // let instructions: TransactionInstruction[] = depositInstructions;
+  // instructions = instructions.concat(createOrderTxInstructions);
+  // instructions = instructions.concat(settleFundsTxInstructions);
+  // instructions = instructions.concat(cancelOrderTxInstruction);
+  // instructions = instructions.concat(redeemTxInstruction);
+  // // instructions.push(crashTxInstruction);
   
-  await signAndSendTransactionInstructions(
-    connection,
-    [sourceOwnerAccount, openOrderAccount, signalProviderAccount],
-    payerAccount,
-    instructions
-  );
+  // await signAndSendTransactionInstructions(
+  //   connection,
+  //   [sourceOwnerAccount, openOrderAccount, signalProviderAccount],
+  //   payerAccount,
+  //   instructions
+  // );
 };
 
 test();

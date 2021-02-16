@@ -1,7 +1,7 @@
 import { PublicKey, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import { PublicKeyInput } from 'crypto';
 import { OrderSide, OrderType, SelfTradeBehavior } from './state';
-import { Numberu16, Numberu32, Numberu64 } from './utils';
+import { Numberu128, Numberu16, Numberu32, Numberu64 } from './utils';
 
 export enum Instruction {
   Init,
@@ -206,13 +206,13 @@ export function depositInstruction(
   sourceOwnerKey: PublicKey,
   sourceAssetKeys: Array<PublicKey>,
   poolSeed: Array<Buffer | Uint8Array>,
-  poolTokenAmount: number,
+  poolTokenAmount: Numberu64,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([3])),
     Buffer.concat(poolSeed),
     // @ts-ignore
-    new Numberu64(poolTokenAmount).toBuffer()
+    poolTokenAmount.toBuffer()
   ];
 
   const data = Buffer.concat(buffers);
@@ -381,6 +381,66 @@ export function createOrderInstruction(
   });
 }
 
+export function cancelOrderInstruction(
+  bonfidaBotProgramId: PublicKey,
+  signalProviderKey: PublicKey,
+  market: PublicKey,
+  openOrdersKey: PublicKey,
+  requestQueue: PublicKey,
+  poolKey: PublicKey,
+  dexProgramKey: PublicKey,
+  poolSeed: Array<Buffer | Uint8Array>,
+  side: OrderSide,
+  orderId: Numberu128,
+): TransactionInstruction {
+  let buffers = [
+    Buffer.from(Int8Array.from([5])),
+    Buffer.concat(poolSeed),
+    Buffer.from(Int8Array.from([side])),
+    orderId.toBuffer()
+  ];
+  const data = Buffer.concat(buffers);
+
+  const keys = [
+    {
+      pubkey: signalProviderKey,
+      isSigner: true,
+      isWritable: false,
+    },
+    {
+      pubkey: market,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: openOrdersKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: requestQueue,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: poolKey,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: dexProgramKey,
+      isSigner: false,
+      isWritable: false,
+    },
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId: bonfidaBotProgramId,
+    data,
+  });
+}
+
 export function settleFundsInstruction(
   bonfidaBotProgramId: PublicKey,
   market: PublicKey,
@@ -476,6 +536,75 @@ export function settleFundsInstruction(
       isSigner: false,
       isWritable: true,
     });
+  }
+
+  return new TransactionInstruction({
+    keys,
+    programId: bonfidaBotProgramId,
+    data,
+  });
+}
+
+export function redeemInstruction(
+  splTokenProgramId: PublicKey,
+  bonfidaBotProgramId: PublicKey,
+  mintKey: PublicKey,
+  poolKey: PublicKey,
+  poolAssetKeys: Array<PublicKey>,
+  sourcePoolTokenOwnerKey: PublicKey,
+  sourcePoolTokenKey: PublicKey,
+  targetAssetKeys: Array<PublicKey>,
+  poolSeed: Array<Buffer | Uint8Array>,
+  poolTokenAmount: Numberu64,
+): TransactionInstruction {
+  let buffers = [
+    Buffer.from(Int8Array.from([3])),
+    Buffer.concat(poolSeed),
+    // @ts-ignore
+    new Numberu64(poolTokenAmount).toBuffer()
+  ];
+
+  const data = Buffer.concat(buffers);
+  const keys = [
+    {
+      pubkey: splTokenProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: mintKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: sourcePoolTokenOwnerKey,
+      isSigner: true,
+      isWritable: false,
+    },
+    {
+      pubkey: sourcePoolTokenKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: poolKey,
+      isSigner: false,
+      isWritable: false,
+    },
+  ];
+  for (var poolAsset of poolAssetKeys) {
+    keys.push({
+      pubkey: poolAsset,
+      isSigner: false,
+      isWritable: true,
+    })
+  }
+  for (var targetAsset of targetAssetKeys) {
+    keys.push({
+      pubkey: targetAsset,
+      isSigner: false,
+      isWritable: true,
+    })
   }
 
   return new TransactionInstruction({

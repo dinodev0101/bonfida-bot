@@ -91,6 +91,37 @@ export class Numberu16 extends BN {
   }
 }
 
+export class Numberu32 extends BN {
+  /**
+   * Convert to Buffer representation
+   */
+  toBuffer(): Buffer {
+    const a = super.toArray().reverse();
+    const b = Buffer.from(a);
+    if (b.length === 4) {
+      return b;
+    }
+    assert(b.length < 4, 'Numberu32 too large');
+
+    const zeroPad = Buffer.alloc(4);
+    b.copy(zeroPad);
+    return zeroPad;
+  }
+
+  /**
+   * Construct a Numberu32 from Buffer representation
+   */
+  static fromBuffer(buffer): any {
+    assert(buffer.length === 4, `Invalid buffer length: ${buffer.length}`);
+    return new BN(
+      [...buffer]
+        .reverse()
+        .map(i => `00${i.toString(16)}`.slice(-2))
+        .join(''),
+      16,
+    );
+  }
+}
 export class Numberu64 extends BN {
   /**
    * Convert to Buffer representation
@@ -123,28 +154,28 @@ export class Numberu64 extends BN {
   }
 }
 
-export class Numberu32 extends BN {
+export class Numberu128 extends BN {
   /**
    * Convert to Buffer representation
    */
   toBuffer(): Buffer {
     const a = super.toArray().reverse();
     const b = Buffer.from(a);
-    if (b.length === 4) {
+    if (b.length === 128) {
       return b;
     }
-    assert(b.length < 4, 'Numberu32 too large');
+    assert(b.length < 16, 'Numberu64 too large');
 
-    const zeroPad = Buffer.alloc(4);
+    const zeroPad = Buffer.alloc(128);
     b.copy(zeroPad);
     return zeroPad;
   }
 
   /**
-   * Construct a Numberu32 from Buffer representation
+   * Construct a Numberu64 from Buffer representation
    */
   static fromBuffer(buffer): any {
-    assert(buffer.length === 4, `Invalid buffer length: ${buffer.length}`);
+    assert(buffer.length === 128, `Invalid buffer length: ${buffer.length}`);
     return new BN(
       [...buffer]
         .reverse()
@@ -154,6 +185,8 @@ export class Numberu32 extends BN {
     );
   }
 }
+
+
 
 export const sleep = (ms: number): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, ms));
