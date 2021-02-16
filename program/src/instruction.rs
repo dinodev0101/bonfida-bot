@@ -121,7 +121,7 @@ pub enum PoolInstruction {
         pool_seed: [u8; 32],
         side: Side,
         limit_price: NonZeroU64,
-        max_qty: NonZeroU16,
+        ratio_of_pool_assets_to_trade: NonZeroU16,
         order_type: OrderType,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
@@ -274,7 +274,7 @@ impl PoolInstruction {
                         .ok_or(InvalidInstruction)?,
                 )
                 .ok_or(InvalidInstruction)?;
-                let max_qty = NonZeroU16::new(
+                let ratio_of_pool_assets_to_trade = NonZeroU16::new(
                     rest.get(41..43)
                         .and_then(|slice| slice.try_into().ok())
                         .map(u16::from_le_bytes)
@@ -312,7 +312,7 @@ impl PoolInstruction {
                     pool_seed,
                     side,
                     limit_price,
-                    max_qty,
+                    ratio_of_pool_assets_to_trade,
                     order_type,
                     client_id,
                     self_trade_behavior,
@@ -424,7 +424,7 @@ impl PoolInstruction {
                 pool_seed,
                 side,
                 limit_price,
-                max_qty,
+                ratio_of_pool_assets_to_trade,
                 order_type,
                 client_id,
                 self_trade_behavior,
@@ -441,7 +441,7 @@ impl PoolInstruction {
                     .to_le_bytes(),
                 );
                 buf.extend_from_slice(&limit_price.get().to_le_bytes());
-                buf.extend_from_slice(&max_qty.get().to_le_bytes());
+                buf.extend_from_slice(&ratio_of_pool_assets_to_trade.get().to_le_bytes());
                 buf.extend_from_slice(
                     &match order_type {
                         OrderType::Limit => 0u8,
@@ -697,7 +697,7 @@ pub fn create_order(
     pool_seed: [u8; 32],
     side: Side,
     limit_price: NonZeroU64,
-    max_qty: NonZeroU16,
+    ratio_of_pool_assets_to_trade: NonZeroU16,
     order_type: OrderType,
     client_id: u64,
     self_trade_behavior: SelfTradeBehavior,
@@ -706,7 +706,7 @@ pub fn create_order(
         pool_seed,
         side,
         limit_price,
-        max_qty,
+        ratio_of_pool_assets_to_trade,
         order_type,
         client_id,
         self_trade_behavior,
@@ -875,7 +875,7 @@ mod test {
             pool_seed: [50u8; 32],
             side: Side::Ask,
             limit_price: NonZeroU64::new(23).unwrap(),
-            max_qty: NonZeroU16::new(500).unwrap(),
+            ratio_of_pool_assets_to_trade: NonZeroU16::new(500).unwrap(),
             order_type: OrderType::Limit,
             client_id: 0xff44,
             self_trade_behavior: SelfTradeBehavior::DecrementTake,

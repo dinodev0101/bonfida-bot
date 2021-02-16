@@ -498,6 +498,7 @@ impl Processor {
         let spl_token_program = next_account_info(account_iter)?;
         let rent_sysvar_account = next_account_info(account_iter)?;
         let dex_program_id = next_account_info(account_iter)?;
+        //TODO write serum dex program id into pool header
         let discount_account = next_account_info(account_iter).ok();
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
@@ -509,6 +510,7 @@ impl Processor {
             openorders_account.key,
         )?;
 
+        // TODO pass market data as arguments in all functions
         let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
         let coin_lot_size =
             u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
@@ -1182,7 +1184,7 @@ impl Processor {
                 pool_seed,
                 side,
                 limit_price,
-                max_qty,
+                ratio_of_pool_assets_to_trade,
                 order_type,
                 client_id,
                 self_trade_behavior,
@@ -1196,7 +1198,7 @@ impl Processor {
                     pool_seed,
                     side,
                     limit_price,
-                    max_qty,
+                    ratio_of_pool_assets_to_trade,
                     order_type,
                     client_id,
                     self_trade_behavior,
