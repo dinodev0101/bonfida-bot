@@ -67,62 +67,6 @@ export function initInstruction(
   });
 }
 
-export function initOrderInstruction(
-  systemProgramId: PublicKey,
-  rentProgramId: PublicKey,
-  bonfidaBotProgramId: PublicKey,
-  orderTrackerKey: PublicKey,
-  openOrdersKey: PublicKey,
-  payerKey: PublicKey,
-  poolKey: PublicKey,
-  poolSeed: Array<Buffer | Uint8Array>,
-): TransactionInstruction {
-  let buffers = [
-    Buffer.from(Int8Array.from([1])),
-    Buffer.concat(poolSeed),
-  ];
-
-  const data = Buffer.concat(buffers);
-  const keys = [
-    {
-      pubkey: systemProgramId,
-      isSigner: false,
-      isWritable: false,
-    },
-    {
-      pubkey: rentProgramId,
-      isSigner: false,
-      isWritable: false,
-    },
-    {
-      pubkey: poolKey,
-      isSigner: false,
-      isWritable: false,
-    },
-    {
-      pubkey: orderTrackerKey,
-      isSigner: false,
-      isWritable: true,
-    },
-    {
-      pubkey: openOrdersKey,
-      isSigner: false,
-      isWritable: false,
-    },
-    {
-      pubkey: payerKey,
-      isSigner: true,
-      isWritable: true,
-    },
-  ];
-
-  return new TransactionInstruction({
-    keys,
-    programId: bonfidaBotProgramId,
-    data,
-  });
-}
-
 export function createInstruction(
   splTokenProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
@@ -273,7 +217,6 @@ export function createOrderInstruction(
   payerPoolAssetIndex: Numberu64,
   targetPoolAssetIndex: Numberu64,
   openOrdersKey: PublicKey,
-  orderTrackerKey: PublicKey,
   serumRequestQueue: PublicKey,
   poolKey: PublicKey,
   coinVaultKey: PublicKey,
@@ -322,11 +265,6 @@ export function createOrderInstruction(
     },
     {
       pubkey: openOrdersKey,
-      isSigner: false,
-      isWritable: true,
-    },
-    {
-      pubkey: orderTrackerKey,
       isSigner: false,
       isWritable: true,
     },
@@ -445,7 +383,6 @@ export function settleFundsInstruction(
   bonfidaBotProgramId: PublicKey,
   market: PublicKey,
   openOrdersKey: PublicKey,
-  orderTrackerKey: PublicKey,
   poolKey: PublicKey,
   poolMintKey: PublicKey,
   coinVaultKey: PublicKey,
@@ -476,11 +413,6 @@ export function settleFundsInstruction(
     },
     {
       pubkey: openOrdersKey,
-      isSigner: false,
-      isWritable: true,
-    },
-    {
-      pubkey: orderTrackerKey,
       isSigner: false,
       isWritable: true,
     },

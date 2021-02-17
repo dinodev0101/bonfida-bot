@@ -14,7 +14,6 @@ import {
   createOrderInstruction,
   depositInstruction,
   initInstruction,
-  initOrderInstruction,
   settleFundsInstruction,
 } from './instructions';
 import {
@@ -77,7 +76,7 @@ export async function createPool(
       payer.publicKey,
       poolKey,
       [poolSeed],
-      4 * maxNumberOfAssets //TODO 4 * real 
+      maxNumberOfAssets 
   );
 
   // Create the pool asset accounts
@@ -260,18 +259,6 @@ export async function createOrder(
   };
   let createOpenOrderAccountInstruction = SystemProgram.createAccount(createAccountParams)
 
-  let orderTrackerKey = (await PublicKey.findProgramAddress([poolSeed, openOrdersKey.toBuffer()], bonfidaBotProgramId))[0];
-  let initOrderTxInstruction = initOrderInstruction(
-    SystemProgram.programId,
-    SYSVAR_RENT_PUBKEY,
-    bonfidaBotProgramId,
-    orderTrackerKey,
-    openOrdersKey,
-    payerKey,
-    poolKey,
-    [poolSeed]
-  );
-
   let createOrderTxInstruction = createOrderInstruction(
     bonfidaBotProgramId,
     signalProviderKey,
@@ -280,7 +267,6 @@ export async function createOrder(
     sourcePoolAssetIndex,
     targetPoolAssetIndex,
     openOrdersKey,
-    orderTrackerKey,
     marketData.reqQueueKey,
     poolKey,
     marketData.coinVaultKey,
@@ -300,7 +286,6 @@ export async function createOrder(
 
   return [openOrderAccount, 
     [createOpenOrderAccountInstruction,
-    initOrderTxInstruction,
     createOrderTxInstruction]
   ]
 }
@@ -323,8 +308,7 @@ export async function settleFunds(
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
-  let orderTrackerKey = (await PublicKey.findProgramAddress([poolSeed, openOrdersKey.toBuffer()], bonfidaBotProgramId))[0];
-  console.log("Order tracker key", orderTrackerKey.toString());
+
   let marketData = await getMarketData(connection, market);
   let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
 
@@ -356,7 +340,6 @@ export async function settleFunds(
     bonfidaBotProgramId,
     market,
     openOrdersKey,
-    orderTrackerKey,
     poolKey,
     poolMintKey,
     marketData.coinVaultKey,
