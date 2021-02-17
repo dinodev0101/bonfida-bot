@@ -8,6 +8,10 @@ use bonfida_bot::{
     state::{unpack_assets, PoolHeader},
 };
 
+#[cfg(not(feature = "fuzz"))]
+use bonfida_bot::state::FIDA_MINT_KEY;
+
+#[cfg(feature = "fuzz")]
 use crate::state::FIDA_MINT_KEY;
 #[cfg(feature = "fuzz")]
 use crate::state::{unpack_assets, PoolHeader};
@@ -68,6 +72,15 @@ impl Context {
                 ..Account::default()
             },
         );
+        let payer = Keypair::new();
+
+        program_test.add_account(
+            payer.pubkey(),
+            Account {
+                lamports: 1<<63,
+                ..Account::default()
+            }
+        );
 
         let mint_authority = Keypair::new();
         let fida_mint = mint_bootstrap(Some(FIDA_MINT_KEY), 6, &mut program_test, &mint_authority.pubkey());
@@ -75,11 +88,12 @@ impl Context {
         let pc_mint = mint_bootstrap(None, 6, &mut program_test, &mint_authority.pubkey());
         let coin_mint = mint_bootstrap(None, 6, &mut program_test, &mint_authority.pubkey());
 
-        let test_state = program_test.start_with_context().await;
+        let mut test_state = program_test.start_with_context().await;
+        test_state.payer = payer;
 
         Context {
-            bonfidabot_program_id: Pubkey::new_unique(),
-            serum_program_id: Pubkey::new_unique(),
+            bonfidabot_program_id,
+            serum_program_id,
             test_state,
             mint_authority,
             fida_mint,

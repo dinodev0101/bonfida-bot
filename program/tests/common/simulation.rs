@@ -122,7 +122,7 @@ impl Arbitrary for Execution {
         }
         let mut turns = Vec::with_capacity(100);
         for _ in 0..100 {
-            let mut actor_intentions = Vec::with_capacity((number_of_subscribers+1) as usize);
+            let mut actor_intentions = Vec::with_capacity((number_of_subscribers as usize) + 1);
             for _ in 0..number_of_subscribers {
                 actor_intentions.push(u.arbitrary()?)
             }
@@ -160,7 +160,7 @@ impl Universe {
         ctx: &Context,
         mints: &Vec<MintInfo>
     ) -> Self {
-        let mut pool = TestPool::new(&ctx.bonfidabot_program_id);
+        let mut pool = TestPool::new(&ctx);
         for mint_info in mints {
             pool.add_mint(None, mint_info);
         }
@@ -193,13 +193,6 @@ impl Universe {
     }
 
     pub async fn init(&mut self, ctx: &mut Context, deposit_amounts: Vec<u64>) -> ProgramResult {
-        for actor in &mut self.actors {
-            actor.asset_accounts = self
-                .pool
-                .get_funded_token_accounts(ctx, &actor.key.pubkey())
-                .await;
-            actor.pool_token_account = Some(self.pool.get_pt_account(ctx, &actor.key.pubkey()).await);
-        }
         self.serum_market = Some(
             SerumMarket::initialize_market_accounts(
                 ctx,
@@ -209,6 +202,13 @@ impl Universe {
             .await?,
         );
         self.pool.setup(&ctx).await;
+        for actor in &mut self.actors {
+            actor.asset_accounts = self
+                .pool
+                .get_funded_token_accounts(ctx, &actor.key.pubkey())
+                .await;
+            actor.pool_token_account = Some(self.pool.get_pt_account(ctx, &actor.key.pubkey()).await);
+        }
         self.pool
             .create(
                 &ctx,
@@ -277,6 +277,7 @@ impl Universe {
                             &actor.asset_accounts,
                         )
                         .await;
+                    actor.pool_token_balance = actor.pool_token_balance + (amount as u64) * 100_000;
                 }
                 Intention::BuyOutPartial(amount) => {
                     self.pool
@@ -288,7 +289,7 @@ impl Universe {
                             &actor.asset_accounts,
                         )
                         .await;
-                    actor.pool_token_balance = actor.pool_token_balance + (amount as u64) * 100_000
+                    actor.pool_token_balance = actor.pool_token_balance + (amount as u64) * 100_000;
                 }
                 Intention::BuyOut => {
                     self.pool
@@ -300,6 +301,7 @@ impl Universe {
                             &actor.asset_accounts,
                         )
                         .await;
+                        actor.pool_token_balance = 0;
                 }
                 Intention::Attack => {}
             }

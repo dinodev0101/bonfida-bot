@@ -18,7 +18,7 @@ use std::{
 
 mod common;
 
-use common::utils::{Context, OpenOrderView, add_token_account, create_and_get_associated_token_address, mint_bootstrap, print_pool_data, wrap_process_transaction};
+use common::{simulation::Actor, utils::{Context, OpenOrderView, add_token_account, clone_keypair, create_and_get_associated_token_address, mint_bootstrap, print_pool_data, wrap_process_transaction}};
 
 use common::pool::TestPool;
 
@@ -26,80 +26,54 @@ use common::market::SerumMarket;
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
 
+
 #[tokio::test]
 async fn test_bonfida_bot() {
-    // Create program and test environment
-    let program_id = Pubkey::from_str("BonfidaBotPFXCWuBvfkegQfZyiNwAJb9Ss623VQ5DA").unwrap();
-    // let serum_program_id = &serum_dex::id();
-    let serum_program_id = Pubkey::from_str("SerumDEXotPFXCWuBvfkegQfZyiNwAJb9Ss623VQ5DA").unwrap();
-    let mut pool = TestPool::new(&program_id);
-    // Load program
-    let mut program_test =
-        ProgramTest::new("bonfida_bot", program_id, processor!(process_instruction));
+    let mut ctx = Context::init().await;
+    let mints = ctx.get_mints();
 
-    // Load The Serum Dex program
-    program_test.add_account(
-        serum_program_id,
-        Account {
-            lamports: u32::MAX.into(),
-            data: read_file(find_file("serum_dex.so").unwrap()),
-            owner: solana_program::bpf_loader_deprecated::id(),
-            executable: true,
-            ..Account::default()
-        },
-    );
+    let mut pool = TestPool::new(&ctx);
+
+    for mint_info in &mints {
+        pool.add_mint(None, mint_info)
+    }
 
     // Set up Source Owner and Fida mint accounts
-    let source_owner = Keypair::new();
+    let mut source_actor = Actor {
+        key: Keypair::new(),
+        asset_accounts: vec![],
+        pool_token_balance: 0,
+        pool_token_account: None,
+        signal_provider: false,
+        
+    };
 
-    program_test.add_account(
-        source_owner.pubkey(),
-        Account {
-            lamports: 5000000,
-            ..Account::default()
-        },
-    );
-    let deposit_amounts = vec![1_000_001, 20_000_000, 238_479, 2_344, 667];
-    let nb_assets = deposit_amounts.len();
+    ctx.refresh_blockhash().await;
 
-    mint_bootstrap(
-        Some(SRM_MINT_KEY),
-        6,
-        &mut program_test,
-        &pool.mint_authority.pubkey(),
-    );
+    // Initialize the pool
+    pool.setup(&ctx).await;
+
+
+    source_actor.asset_accounts = pool.get_funded_token_accounts(&ctx, &source_actor.key.pubkey()).await;
+    source_actor.pool_token_account = Some(pool.get_pt_account(&ctx, &source_actor.key.pubkey()).await);
+
+    let mut signal_provider = Actor {
+        key: clone_keypair(&pool.signal_provider),
+        asset_accounts: vec![],
+        pool_token_balance: 0,
+        pool_token_account: None,
+        signal_provider: true
+    };
+    signal_provider.asset_accounts = pool.get_funded_token_accounts(&ctx, &pool.signal_provider.pubkey()).await;
+    signal_provider.pool_token_account = Some(pool.get_pt_account(&ctx, &signal_provider.key.pubkey()).await);
+
+    let deposit_amounts = vec![3_238_385, 4_000_000, 1_000_001, 20_000_000];
 
     // Initialize all asset mints
 
-    for i in 0..nb_assets {
-        let (name, address) = match i {
-            0 => (Some("FIDA"), Some(FIDA_MINT_KEY)),
-            _ => (None, None),
-        };
-        pool.add_mint(name, address, 6, &mut program_test);
-    }
-
-    let srm_receiver = Pubkey::new_unique();
-    add_token_account(
-        &mut program_test,
-        srm_receiver,
-        Pubkey::new_unique(),
-        Pubkey::from_str(SRM_MINT_KEY).unwrap(),
-        u32::MAX.into(),
-    );
     // Setup The Serum Dex market
-    let pc_mint = pool.mints[1].key;
-    let coin_mint = pool.mints[2].key;
-
-    // Start and process transactions on the test network
-    let test_state = program_test.start_with_context().await;
-
-
-    let mut ctx = Context {
-        bonfidabot_program_id: program_id,
-        serum_program_id: serum_program_id,
-        test_state: test_state,
-    };
+    let pc_mint = pool.mints[2].key;
+    let coin_mint = pool.mints[3].key;
 
     let serum_market = SerumMarket::initialize_market_accounts(
         &ctx,
@@ -109,25 +83,12 @@ async fn test_bonfida_bot() {
     .await
     .unwrap();
 
-    // Initialize the pool
-    pool.setup(&ctx).await;
-
-    // Setup pool and source token asset accounts
-    let source_asset_keys = pool
-        .get_funded_token_accounts(
-            &ctx,
-            &source_owner.pubkey()
-        )
-        .await;
-
-    let pooltoken_target_key = pool.get_pt_account(&ctx, &source_owner.pubkey()).await;
-
     // Execute the create pool instruction
     pool.create(
         &ctx,
-        &pooltoken_target_key,
-        &source_owner,
-        &source_asset_keys,
+        source_actor.pool_token_account.as_ref().unwrap(),
+        &source_actor.key,
+        &source_actor.asset_accounts,
         deposit_amounts,
     )
     .await;
@@ -137,9 +98,9 @@ async fn test_bonfida_bot() {
     pool.deposit(
         &ctx,
         5000,
-        &pooltoken_target_key,
-        &source_owner,
-        &source_asset_keys,
+        &source_actor.pool_token_account.as_ref().unwrap(),
+        &source_actor.key,
+        &source_actor.asset_accounts,
     )
     .await;
 
@@ -153,8 +114,8 @@ async fn test_bonfida_bot() {
     pool.create_new_order(
         &ctx,
         &serum_market,
-        1,
         2,
+        3,
         &order,
         Side::Bid,
         NonZeroU64::new(1).unwrap(),
@@ -190,7 +151,7 @@ async fn test_bonfida_bot() {
             NonZeroU64::new(lots_to_trade).unwrap(),
             0,
             SelfTradeBehavior::DecrementTake,
-            &pool.mint_authority,
+            &ctx.mint_authority,
             &order.open_orders_account,
         )
         .await;
@@ -199,8 +160,8 @@ async fn test_bonfida_bot() {
     pool.settle(
         &ctx,
         &serum_market,
+        3,
         2,
-        1,
         &order,
     )
     .await;
@@ -239,8 +200,8 @@ async fn test_bonfida_bot() {
     pool.settle(
         &ctx,
         &serum_market,
+        3,
         2,
-        1,
         &order,
     )
     .await;
@@ -251,7 +212,8 @@ async fn test_bonfida_bot() {
     print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
 
     // Execute a Redeem instruction
-    pool.redeem(&ctx, 100, &source_owner, &pooltoken_target_key, &source_asset_keys).await;
+    pool.redeem(&ctx, 100, &source_actor.key, source_actor.pool_token_account.as_ref().unwrap(), &source_actor.asset_accounts).await;
 
     print_pool_data(&pool.key, &ctx.test_state.banks_client).await.unwrap();
+    
 }

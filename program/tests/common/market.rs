@@ -294,7 +294,6 @@ impl SerumMarket {
         ctx: &Context,
         open_order_accounts: Vec<&Pubkey>,
     ) {
-        println!("CHECKEEsss");
 
         // Crank the Serum matching engine
         let match_instruction = serum_dex::instruction::match_orders(
@@ -309,12 +308,6 @@ impl SerumMarket {
             10,
         )
         .unwrap();
-        let new_block_hash = ctx.test_state.banks_client
-            .to_owned()
-            .get_new_blockhash(&ctx.test_state.last_blockhash)
-            .await
-            .unwrap()
-            .0;
         wrap_process_transaction(
             &ctx,
             vec![match_instruction],
@@ -322,7 +315,6 @@ impl SerumMarket {
         )
         .await
         .unwrap();
-        println!("CHECKEEssFs");
 
         let consume_instruction = serum_dex::instruction::consume_events(
             &ctx.serum_program_id,
@@ -341,6 +333,5 @@ impl SerumMarket {
         )
         .await
         .unwrap();
-        println!("CHECKEEssFs 3");
     }
 }

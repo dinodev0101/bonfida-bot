@@ -9,14 +9,16 @@ use bonfida_bot::common::simulation::Execution;
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
 
-#[tokio::main]
-async fn main() {
+
+fn main() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
     loop {
-        let mut ctx = Context::init().await;
+        let mut ctx = rt.block_on(Context::init());
         let mints = ctx.get_mints();
 
         fuzz!(|e: Execution| {
-            block_on(e.run(&mut ctx, &mints));
+            rt.block_on(e.run(&mut ctx, &mints));
         });
     //     fuzz!(|v: Vec<u8>| {
     //         let mut sum = 0;

@@ -23,30 +23,28 @@ pub struct TestPool {
     pub mint_key: Pubkey,
     pub key: Pubkey,
     pub signal_provider: Keypair,
-    pub mint_authority: Keypair,
     pub mints: Vec<TestMint>,
     program_id: Pubkey,
 }
 
 impl TestPool {
-    pub fn new(program_id: &Pubkey) -> Self {
+    pub fn new(ctx: &Context) -> Self {
         let mut pool_seeds;
         loop {
             pool_seeds = rand::thread_rng().gen::<[u8; 32]>();
-            let (_, bump) = Pubkey::find_program_address(&[&pool_seeds[..31]], program_id);
+            let (_, bump) = Pubkey::find_program_address(&[&pool_seeds[..31]], &ctx.bonfidabot_program_id);
             pool_seeds[31] = bump;
-            if Pubkey::create_program_address(&[&pool_seeds, &[1]], program_id).is_ok() {
+            if Pubkey::create_program_address(&[&pool_seeds, &[1]], &ctx.bonfidabot_program_id).is_ok() {
                 break;
             };
         }
-        let mint_key = Pubkey::create_program_address(&[&pool_seeds, &[1]], &program_id).unwrap();
+        let mint_key = Pubkey::create_program_address(&[&pool_seeds, &[1]], &ctx.bonfidabot_program_id).unwrap();
         Self {
             seeds: pool_seeds,
-            key: Pubkey::create_program_address(&[&pool_seeds], &program_id).unwrap(),
+            key: Pubkey::create_program_address(&[&pool_seeds], &ctx.bonfidabot_program_id).unwrap(),
             mint_key,
-            mint_authority: Keypair::new(),
             mints: vec![],
-            program_id: *program_id,
+            program_id: ctx.bonfidabot_program_id,
             signal_provider: Keypair::new(),
         }
     }
@@ -141,9 +139,9 @@ impl TestPool {
                 &spl_token::id(),
                 &m.key,
                 &address,
-                &self.mint_authority.pubkey(),
+                &ctx.mint_authority.pubkey(),
                 &[],
-                u32::MAX.into(),
+                1 << 25,
             )
             .unwrap();
             accounts.push(address);
@@ -153,7 +151,7 @@ impl TestPool {
         wrap_process_transaction(
             ctx,
             instructions,
-            vec![&self.mint_authority],
+            vec![&ctx.mint_authority],
         )
         .await
         .unwrap();
@@ -326,8 +324,8 @@ impl TestPool {
             &ctx.serum_program_id,
             None,
             self.seeds,
-            1,
-            2,
+            pc_asset_index,
+            coin_asset_index,
         )
         .unwrap();
         wrap_process_transaction(
