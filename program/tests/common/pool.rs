@@ -176,6 +176,7 @@ impl TestPool {
             target_pool_token_account,
             &source_owner.pubkey(),
             &source_asset_keys,
+            &ctx.serum_program_id,
             &self.signal_provider.pubkey(),
             deposit_amounts,
         )

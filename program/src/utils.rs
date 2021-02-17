@@ -18,32 +18,6 @@ pub fn check_pool_key(program_id: &Pubkey, key: &Pubkey, pool_seed: &[u8; 32]) -
     Ok(())
 }
 
-pub fn check_open_orders_account(
-    openorders_account: &AccountInfo,
-    pool_key: &Pubkey,
-    allow_uninitialized: bool
-) -> ProgramResult {
-    // TODO: Check offsets
-    let account_flags = openorders_account.data.borrow()
-        .get(5..13)
-        .and_then(|slice| slice.try_into().ok())
-        .map(u64::from_le_bytes);
-    if account_flags.is_none() {
-        msg!("Failed to parse openorders account flags");
-    }
-    if (account_flags == Some(0)) & allow_uninitialized {
-        // Open Orders account is uninitialized
-        return Ok(())
-    }
-    let owner = Pubkey::new(&openorders_account.data.borrow()[45..77]);
-    if &owner != pool_key {
-        msg!("The pool account should own the open orders account");
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    Ok(())
-}
-
 pub fn check_signal_provider(
     pool_header: &PoolHeader,
     signal_provider_account: &AccountInfo,

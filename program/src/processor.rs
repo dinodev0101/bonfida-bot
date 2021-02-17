@@ -4,17 +4,7 @@ use std::{
     num::{NonZeroU16, NonZeroU64, NonZeroU8},
 };
 
-use crate::{
-    error::BonfidaBotError,
-    instruction::PoolInstruction,
-    state::{
-        pack_asset, unpack_assets, unpack_unchecked_asset, PoolAsset, PoolHeader,
-        PoolStatus, FIDA_MINT_KEY, FIDA_MIN_AMOUNT,
-    },
-    utils::{
-        check_open_orders_account, check_pool_key, check_signal_provider,
-    },
-};
+use crate::{error::BonfidaBotError, instruction::PoolInstruction, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PUBKEY_LENGTH, PoolAsset, PoolHeader, PoolStatus, pack_asset, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset}, utils::{check_pool_key, check_signal_provider}};
 use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
@@ -46,6 +36,7 @@ impl Processor {
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
         max_number_of_assets: u32,
+        number_of_markets: u16,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
 
@@ -72,8 +63,9 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let state_size =
-            PoolHeader::LEN + max_number_of_assets as usize * PoolAsset::LEN;
+        let state_size = PoolHeader::LEN
+            + PUBKEY_LENGTH * (number_of_markets as usize)
+            + max_number_of_assets as usize * PoolAsset::LEN;
 
         let create_pool_account = create_account(
             &payer_account.key,
@@ -131,8 +123,10 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
+        serum_program_id: &Pubkey,
         signal_provider_key: &Pubkey,
         deposit_amounts: Vec<u64>,
+        markets: Vec<Pubkey>,
     ) -> ProgramResult {
         let number_of_assets = deposit_amounts.len();
         let accounts_iter = &mut accounts.iter();
@@ -178,6 +172,10 @@ impl Processor {
         }
         if !source_owner_account.is_signer {
             msg!("Source token account owner should be a signer.");
+            return Err(ProgramError::InvalidArgument);
+        }
+        if markets.len() >> 16 != 0 {
+            msg!("Number of given markets is too high.");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -252,14 +250,19 @@ impl Processor {
 
         // Write state header into data
         let state_header = PoolHeader {
+            serum_program_id: *serum_program_id,
             signal_provider: *signal_provider_key,
             status: PoolStatus::Unlocked,
+            number_of_markets: markets.len() as u16,
         };
         let mut data = pool_account.data.borrow_mut();
         state_header.pack_into_slice(&mut data);
 
+        // Write the authorized markets to the account data
+        pack_markets(&mut data[PoolHeader::LEN..], &markets);
+
         // Write the assets into the account data
-        let mut offset = PoolHeader::LEN;
+        let mut offset = PoolHeader::LEN + PUBKEY_LENGTH * markets.len();
         for asset in pool_assets.iter() {
             asset.pack_into_slice(&mut data[offset..]);
             offset += PoolAsset::LEN;
@@ -283,7 +286,8 @@ impl Processor {
         let pool_account = next_account_info(accounts_iter)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
-        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+        let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
+        let pool_assets = unpack_assets(&pool_account.data.borrow()[asset_offset..])?;
         let nb_assets = pool_assets.len();
 
         let mut pool_assets_accounts: Vec<&AccountInfo> = vec![];
@@ -423,6 +427,10 @@ impl Processor {
         limit_price: NonZeroU64,
         max_ratio_of_pool_to_sell_to_another_fellow_trader: NonZeroU16,
         order_type: OrderType,
+        market_index: u16,
+        coin_lot_size: u64,
+        pc_lot_size: u64,
+        target_mint: Pubkey,
         client_id: u64,
         self_trade_behavior: SelfTradeBehavior,
         source_index: usize,
@@ -442,21 +450,10 @@ impl Processor {
         let pc_vault = next_account_info(account_iter)?;
         let spl_token_program = next_account_info(account_iter)?;
         let rent_sysvar_account = next_account_info(account_iter)?;
-        let dex_program_id = next_account_info(account_iter)?;
-        //TODO write serum dex program id into pool header
+        let dex_program = next_account_info(account_iter)?;
         let discount_account = next_account_info(account_iter).ok();
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
-
-        // TODO pass market data as arguments in all functions
-        let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
-        let coin_lot_size =
-            u64::from_le_bytes(market.data.borrow()[349..357].try_into().ok().unwrap());
-        let pc_mint = Pubkey::new(&market.data.borrow()[85..117]);
-        let pc_lot_size =
-            u64::from_le_bytes(market.data.borrow()[357..365].try_into().ok().unwrap());
-
-        check_open_orders_account(openorders_account, pool_account.key, true)?;
 
         let source_account =
             Account::unpack(&pool_asset_token_account.data.borrow()).or_else(|e| {
@@ -472,12 +469,20 @@ impl Processor {
         }
 
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+        if &pool_header.serum_program_id != dex_program.key {
+            msg!("The provided serum program account is invalid for this pool.");
+            return Err(ProgramError::InvalidArgument);
+        }
         if !signal_provider_account.is_signer {
             msg!("The signal provider's signature is required.");
             return Err(ProgramError::MissingRequiredSignature);
         }
         if signal_provider_account.key != &pool_header.signal_provider {
             msg!("A wrong signal provider account was provided.");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        if market.key != &unpack_market(&pool_account.data.borrow()[PoolHeader::LEN..], market_index) {
+            msg!("The given market account is not authorized.");
             return Err(ProgramError::MissingRequiredSignature);
         }
         match pool_header.status {
@@ -507,8 +512,11 @@ impl Processor {
         };
         pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
 
-        let mut source_asset = unpack_unchecked_asset(&pool_account.data.borrow(), source_index)?;
-        let mut target_asset = unpack_unchecked_asset(&pool_account.data.borrow(), target_index)?;
+        let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
+        let mut source_asset =
+            unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], source_index)?;
+        let mut target_asset =
+            unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], target_index)?;
 
         if !source_asset.is_initialized() {
             msg!("The pool has no account at the specificed source index");
@@ -525,11 +533,6 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let target_mint = match side {
-            Side::Bid => coin_mint,
-            Side::Ask => pc_mint,
-        };
-
         if target_asset.is_initialized() {
             if target_asset.mint_address != target_mint {
                 msg!("Target asset does not match bid currency");
@@ -538,20 +541,10 @@ impl Processor {
         } else {
             target_asset.mint_address = target_mint;
             pack_asset(
-                &mut pool_account.data.borrow_mut(),
+                &mut pool_account.data.borrow_mut()[asset_offset..],
                 &target_asset,
                 target_index,
             )?;
-        }
-
-        if source_asset.mint_address
-            != match side {
-                Side::Bid => pc_mint,
-                Side::Ask => coin_mint,
-            }
-        {
-            msg!("Wrong source index provided.");
-            return Err(ProgramError::InvalidArgument);
         }
 
         let cast_value: u128 =
@@ -586,10 +579,11 @@ impl Processor {
         source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_per_pooltoken;
 
         pack_asset(
-            &mut pool_account.data.borrow_mut(),
+            &mut pool_account.data.borrow_mut()[asset_offset..],
             &source_asset,
             source_index,
         )?;
+        //TODO uninitiliaze asset if empty
 
         let new_order_instruction = new_order(
             market.key,
@@ -602,7 +596,7 @@ impl Processor {
             spl_token_program.key,
             rent_sysvar_account.key,
             discount_account.map(|account| account.key),
-            dex_program_id.key,
+            dex_program.key,
             side,
             limit_price,
             NonZeroU64::new(lots_to_trade).ok_or(BonfidaBotError::Overflow)?,
@@ -656,8 +650,6 @@ impl Processor {
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
 
-        check_open_orders_account(openorders_account, pool_account.key, false)?;
-
         let coin_mint = Pubkey::new(&market.data.borrow()[53..85]);
         let pc_mint = Pubkey::new(&market.data.borrow()[85..117]);
 
@@ -685,8 +677,13 @@ impl Processor {
         let pool_coin_account = Account::unpack(&pool_coin_wallet.data.borrow())?;
         let pool_pc_account = Account::unpack(&pool_pc_wallet.data.borrow())?;
 
-        let mut pool_coin_asset = unpack_unchecked_asset(&pool_account.data.borrow(), coin_index)?;
-        let mut pool_pc_asset = unpack_unchecked_asset(&pool_account.data.borrow(), pc_index)?;
+        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+
+        let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
+        let mut pool_coin_asset =
+            unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], coin_index)?;
+        let mut pool_pc_asset =
+            unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], pc_index)?;
 
         if &pool_coin_account.owner != pool_account.key {
             msg!("Pool should own the provided coin account");
@@ -746,7 +743,6 @@ impl Processor {
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
 
-        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         if (openorders_free_pc == openorders_total_pc)
             && (openorders_free_coin == openorders_total_coin)
         {
@@ -799,12 +795,12 @@ impl Processor {
             .map_err(|_| BonfidaBotError::Overflow)?;
 
         pack_asset(
-            &mut pool_account.data.borrow_mut(),
+            &mut pool_account.data.borrow_mut()[asset_offset..],
             &pool_coin_asset,
             coin_index,
         )?;
         pack_asset(
-            &mut pool_account.data.borrow_mut(),
+            &mut pool_account.data.borrow_mut()[asset_offset..],
             &pool_pc_asset,
             pc_index,
         )?;
@@ -861,7 +857,6 @@ impl Processor {
         let dex_program = next_account_info(accounts_iter)?;
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
-        check_open_orders_account(openorders_account, pool_account.key, false)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         check_signal_provider(&pool_header, signal_provider, true)?;
@@ -909,7 +904,8 @@ impl Processor {
         let pool_account = next_account_info(accounts_iter)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
-        let pool_assets = unpack_assets(&pool_account.data.borrow()[PoolHeader::LEN..])?;
+        let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
+        let pool_assets = unpack_assets(&pool_account.data.borrow()[asset_offset..])?;
         let nb_assets = pool_assets.len();
 
         let mut pool_assets_accounts: Vec<&AccountInfo> = vec![];
@@ -1019,22 +1015,33 @@ impl Processor {
             PoolInstruction::Init {
                 pool_seed,
                 max_number_of_assets,
+                number_of_markets,
             } => {
                 msg!("Instruction: Init");
-                Self::process_init(program_id, accounts, pool_seed, max_number_of_assets)
+                Self::process_init(
+                    program_id,
+                    accounts,
+                    pool_seed,
+                    max_number_of_assets,
+                    number_of_markets,
+                )
             }
             PoolInstruction::Create {
                 pool_seed,
+                serum_program_id,
                 signal_provider_key,
                 deposit_amounts,
+                markets
             } => {
                 msg!("Instruction: Create Pool");
                 Self::process_create(
                     program_id,
                     accounts,
                     pool_seed,
+                    &serum_program_id,
                     &signal_provider_key,
                     deposit_amounts,
+                    markets
                 )
             }
             PoolInstruction::Deposit {
@@ -1054,6 +1061,10 @@ impl Processor {
                 self_trade_behavior,
                 source_index,
                 target_index,
+                market_index,
+                coin_lot_size,
+                pc_lot_size,
+                target_mint,
             } => {
                 msg!("Instruction: Create Order for Pool");
                 Self::process_create_order(
@@ -1064,6 +1075,10 @@ impl Processor {
                     limit_price,
                     ratio_of_pool_assets_to_trade,
                     order_type,
+                    market_index,
+                    coin_lot_size,
+                    pc_lot_size,
+                    target_mint,
                     client_id,
                     self_trade_behavior,
                     source_index as usize,

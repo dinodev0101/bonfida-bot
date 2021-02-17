@@ -34,6 +34,7 @@ pub enum PoolInstruction {
         pool_seed: [u8; 32],
         // The maximum number of token asset types the pool will ever be able to hold
         max_number_of_assets: u32,
+        number_of_markets: u16
     },
     /// Creates a new pool from an empty (uninitialized) one by performing the first deposit
     /// of any number of different tokens and setting the pubkey of the signal provider.
@@ -55,8 +56,10 @@ pub enum PoolInstruction {
     ///   M+4..2M+4. `[writable]` The M source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
+        serum_program_id: Pubkey,
         signal_provider_key: Pubkey,
         deposit_amounts: Vec<u64>,
+        markets: Vec<Pubkey>
     },
     /// Buy into the pool. The source deposits tokens into the pool and the target receives
     /// a corresponding amount of pool-token in exchange. The program will try to
@@ -108,6 +111,10 @@ pub enum PoolInstruction {
         self_trade_behavior: SelfTradeBehavior,
         source_index: u64,
         target_index: u64,
+        market_index: u16,
+        coin_lot_size: u64,
+        pc_lot_size: u64,
+        target_mint: Pubkey,
     },
     /// As a signal provider, cancel a serum order for the pool.
     ///
@@ -183,9 +190,15 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(u32::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
+                let number_of_markets: u16 = rest
+                    .get(36..38)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u16::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
                 Self::Init {
                     pool_seed,
                     max_number_of_assets,
+                    number_of_markets
                 }
             }
             1 => {
@@ -193,12 +206,33 @@ impl PoolInstruction {
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
                     .unwrap();
-                let signal_provider_key = rest
+                let serum_program_id = rest
                     .get(32..64)
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
-                let mut k = 64;
+                let signal_provider_key = rest
+                    .get(64..96)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(Pubkey::new)
+                    .ok_or(InvalidInstruction)?;
+                let number_of_markets = rest
+                    .get(96..98)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u16::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let mut markets = Vec::with_capacity(number_of_markets as usize);
+                let mut offset = 98;
+                for _ in 0..number_of_markets {
+                    markets.push(rest
+                        .get(offset..offset + 32)
+                        .and_then(|slice| slice.try_into().ok())
+                        .map(Pubkey::new)
+                        .ok_or(InvalidInstruction)?
+                    );
+                    offset = offset + 32;
+                }
+                let mut k = offset;
                 let mut deposit_amounts = vec![];
                 while k != 0 {
                     match rest.get(k..(k + 8)) {
@@ -211,7 +245,9 @@ impl PoolInstruction {
                 }
                 Self::Create {
                     pool_seed,
+                    serum_program_id,
                     signal_provider_key,
+                    markets,
                     deposit_amounts,
                 }
             }
@@ -281,6 +317,26 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
+                let market_index = rest
+                    .get(69..71)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u16::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let coin_lot_size = rest
+                    .get(71..79)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let pc_lot_size = rest
+                    .get(79..87)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let target_mint = rest
+                    .get(87..119)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(Pubkey::new)
+                    .ok_or(InvalidInstruction)?;
                 Self::CreateOrder {
                     pool_seed,
                     side,
@@ -291,6 +347,10 @@ impl PoolInstruction {
                     self_trade_behavior,
                     source_index,
                     target_index,
+                    market_index,
+                    coin_lot_size,
+                    pc_lot_size,
+                    target_mint,
                 }
             }
             4 => {
@@ -364,19 +424,28 @@ impl PoolInstruction {
             Self::Init {
                 pool_seed,
                 max_number_of_assets,
+                number_of_markets
             } => {
                 buf.push(0);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&max_number_of_assets.to_le_bytes());
+                buf.extend_from_slice(&number_of_markets.to_le_bytes());
             }
             Self::Create {
                 pool_seed,
+                serum_program_id,
                 signal_provider_key,
                 deposit_amounts,
+                markets
             } => {
                 buf.push(1);
                 buf.extend_from_slice(pool_seed);
+                buf.extend_from_slice(&serum_program_id.to_bytes());
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
+                buf.extend_from_slice(&(markets.len() as u16).to_le_bytes());
+                for market in markets {
+                    buf.extend_from_slice(&market.to_bytes())
+                }
                 for amount in deposit_amounts.iter() {
                     buf.extend_from_slice(&amount.to_le_bytes());
                 }
@@ -399,6 +468,10 @@ impl PoolInstruction {
                 self_trade_behavior,
                 source_index,
                 target_index,
+                market_index,
+                coin_lot_size,
+                pc_lot_size,
+                target_mint,
             } => {
                 buf.push(3);
                 buf.extend_from_slice(pool_seed);
@@ -429,6 +502,10 @@ impl PoolInstruction {
                 );
                 buf.extend_from_slice(&source_index.to_le_bytes());
                 buf.extend_from_slice(&target_index.to_le_bytes());
+                buf.extend_from_slice(&market_index.to_le_bytes());
+                buf.extend_from_slice(&coin_lot_size.to_le_bytes());
+                buf.extend_from_slice(&pc_lot_size.to_le_bytes());
+                buf.extend_from_slice(&target_mint.to_bytes());
             }
             Self::CancelOrder {
                 pool_seed,
@@ -480,10 +557,12 @@ pub fn init(
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
     max_number_of_assets: u32,
+    number_of_markets: u16
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Init {
         pool_seed,
         max_number_of_assets,
+        number_of_markets
     }
     .pack();
     let accounts = vec![
@@ -512,13 +591,17 @@ pub fn create(
     target_pool_token_key: &Pubkey,
     source_owner_key: &Pubkey,
     source_asset_keys: &Vec<Pubkey>,
+    serum_program_id: &Pubkey,
     signal_provider_key: &Pubkey,
     deposit_amounts: Vec<u64>,
+    markets: Vec<Pubkey>
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
+        serum_program_id: *serum_program_id,
         signal_provider_key: *signal_provider_key,
         deposit_amounts,
+        markets
     }
     .pack();
     let mut accounts = vec![
@@ -638,6 +721,10 @@ pub fn create_order(
     pool_seed: [u8; 32],
     side: Side,
     limit_price: NonZeroU64,
+    market_index: u16,
+    coin_lot_size: u64,
+    pc_lot_size: u64,
+    target_mint: &Pubkey,
     ratio_of_pool_assets_to_trade: NonZeroU16,
     order_type: OrderType,
     client_id: u64,
@@ -653,6 +740,11 @@ pub fn create_order(
         self_trade_behavior,
         source_index: payer_pool_asset_index,
         target_index: target_pool_asset_index,
+        market_index,
+        coin_lot_size,
+        pc_lot_size,
+        target_mint: *target_mint,
+        
     }
     .pack();
     let mut accounts = vec![
@@ -778,6 +870,7 @@ mod test {
         let original_init = PoolInstruction::Init {
             pool_seed: [50u8; 32],
             max_number_of_assets: 43,
+            number_of_markets: 50
         };
         assert_eq!(
             original_init,
@@ -786,8 +879,10 @@ mod test {
 
         let original_create = PoolInstruction::Create {
             pool_seed: [50u8; 32],
+            serum_program_id: Pubkey::new_unique(),
             signal_provider_key: Pubkey::new_unique(),
             deposit_amounts: vec![23 as u64, 43 as u64],
+            markets: vec![Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique()]
         };
         let packed_create = original_create.pack();
         let unpacked_create = PoolInstruction::unpack(&packed_create).unwrap();
@@ -811,6 +906,10 @@ mod test {
             self_trade_behavior: SelfTradeBehavior::DecrementTake,
             source_index: 42,
             target_index: 78,
+            market_index: 41,
+            coin_lot_size: 41,
+            pc_lot_size: 41,
+            target_mint: Pubkey::new_unique(),
         };
         let packed_create_order = original_create_order.pack();
         let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();

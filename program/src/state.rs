@@ -1,4 +1,4 @@
-use serum_dex::matching::Side;
+use serum_dex::state::account_parser::CancelOrderByClientIdArgs;
 use solana_program::{
     program_error::ProgramError,
     program_pack::{IsInitialized, Pack, Sealed},
@@ -8,6 +8,7 @@ use std::{convert::TryInto, num::NonZeroU8};
 
 pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
+pub const PUBKEY_LENGTH: usize = 32;
 
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
@@ -26,8 +27,10 @@ pub enum PoolStatus {
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
+    pub serum_program_id: Pubkey,
     pub signal_provider: Pubkey,
     pub status: PoolStatus,
+    pub number_of_markets: u16, 
 }
 
 const STATUS_PENDING_ORDER_FLAG: u8 = 1 << 6;
@@ -57,31 +60,40 @@ impl Pack for PoolHeader {
                     | STATUS_PENDING_ORDER_FLAG
                     | (STATUS_PENDING_ORDER_MASK & (n.get() - 1))
             }
+        };
+        let number_of_markets_bytes = self.number_of_markets.to_le_bytes();
+        for i in 33..35 {
+            target[i] = number_of_markets_bytes[i - 33];
         }
+
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let signal_provider = Pubkey::new(&src[..32]);
-        let status = if src[32] == 0 {
+        let serum_program_id = Pubkey::new(&src[..32]);
+        let signal_provider = Pubkey::new(&src[32..64]);
+        let status = if src[64] == 0 {
             PoolStatus::Uninitialized
         } else {
-            match src[32] >> 6 {
+            match src[64] >> 6 {
                 0 => PoolStatus::Unlocked,
                 1 => PoolStatus::PendingOrder(
-                    NonZeroU8::new((src[32] & STATUS_PENDING_ORDER_MASK) + 1)
+                    NonZeroU8::new((src[64] & STATUS_PENDING_ORDER_MASK) + 1)
                         .ok_or(ProgramError::InvalidArgument)?,
                 ),
                 2 => PoolStatus::Locked,
                 3 => PoolStatus::LockedPendingOrder(
-                    NonZeroU8::new((src[32] & STATUS_PENDING_ORDER_MASK) + 1)
+                    NonZeroU8::new((src[64] & STATUS_PENDING_ORDER_MASK) + 1)
                         .ok_or(ProgramError::InvalidArgument)?,
                 ),
                 _ => return Err(ProgramError::InvalidAccountData),
             }
         };
+        let number_of_markets = u16::from_le_bytes(src[65..].try_into().unwrap());
         Ok(Self {
+            serum_program_id,
             signal_provider,
             status,
+            number_of_markets
         })
     }
 
@@ -169,7 +181,7 @@ pub fn unpack_assets(input: &[u8]) -> Result<Vec<PoolAsset>, ProgramError> {
 }
 
 pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, ProgramError> {
-    let offset = PoolHeader::LEN + index * PoolAsset::LEN;
+    let offset = index * PoolAsset::LEN;
     input
         .get(offset..offset + PoolAsset::LEN)
         .ok_or(ProgramError::InvalidArgument)
@@ -177,7 +189,7 @@ pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, P
 }
 
 pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<(), ProgramError> {
-    let offset = PoolHeader::LEN + index * PoolAsset::LEN;
+    let offset = index * PoolAsset::LEN;
     let slice = target
         .get_mut(offset..offset + PoolAsset::LEN)
         .ok_or(ProgramError::InvalidArgument)?;
@@ -185,12 +197,23 @@ pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<
     Ok(())
 }
 
+pub fn unpack_market(input: &[u8], market_index: u16) -> Pubkey {
+    let offset = 32 * (market_index as usize);
+    return Pubkey::new(&input[offset..offset + 32]);
+}
+
+pub fn pack_markets(target: &mut [u8], markets: &Vec<Pubkey>) -> Result<(), ProgramError> {
+    for i in 0..markets.len() {
+        target[32 * i..32 *(i + 1)].copy_from_slice(&markets[i].to_bytes());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU8;
 
-    use super::{unpack_assets, PoolAsset, PoolHeader, PoolStatus};
-    use serum_dex::matching::Side;
+    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, unpack_market, pack_markets};
     use solana_program::{
         program_pack::{IsInitialized, Pack},
         pubkey::Pubkey,
@@ -199,8 +222,10 @@ mod tests {
     #[test]
     fn test_state_packing() {
         let header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
+            number_of_markets: 234
         };
 
         let header_size = PoolHeader::LEN;
@@ -229,8 +254,10 @@ mod tests {
     #[test]
     fn test_header_packing() {
         let mut header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
+            number_of_markets: 234
         };
         assert_eq!(
             header_state,
@@ -238,8 +265,10 @@ mod tests {
         );
 
         header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap()),
+            number_of_markets: 234
         };
         assert_eq!(
             header_state,
@@ -247,8 +276,10 @@ mod tests {
         );
 
         header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Locked,
+            number_of_markets: 234
         };
         assert_eq!(
             header_state,
@@ -256,8 +287,10 @@ mod tests {
         );
 
         header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Unlocked,
+            number_of_markets: 234
         };
         assert_eq!(
             header_state,
@@ -265,8 +298,10 @@ mod tests {
         );
 
         header_state = PoolHeader {
+            serum_program_id: Pubkey::new_unique(),
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Uninitialized,
+            number_of_markets: 234
         };
         assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
     }
@@ -281,5 +316,16 @@ mod tests {
     fn test_state_init() {
         let pool_asset = PoolAsset::unpack_unchecked(&[0u8; PoolAsset::LEN]).unwrap();
         assert!(!pool_asset.is_initialized());
+    }
+
+    #[test]
+    fn test_market_packing() {
+
+        let markets = vec![Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique()];
+        let mut output_array = [0u8; 4 * 32];
+        pack_markets(&mut output_array, &markets).unwrap();
+        for i in 0..4 {
+            assert_eq!(markets[i], unpack_market(&output_array, i as u16));
+        }
     }
 }
