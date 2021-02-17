@@ -216,6 +216,7 @@ impl Universe {
                 &self.actors[0].key,
                 &self.actors[0].asset_accounts,
                 deposit_amounts,
+                &self.serum_market.as_ref().unwrap().market_key.pubkey()
             )
             .await;
         Ok(())

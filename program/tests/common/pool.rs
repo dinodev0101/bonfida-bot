@@ -87,6 +87,7 @@ impl TestPool {
             &self.key,
             self.seeds,
             100,
+            1
         )
         .unwrap();
         let mut instructions = Vec::with_capacity(self.mints.len() + 1);
@@ -165,6 +166,7 @@ impl TestPool {
         source_owner: &Keypair,
         source_asset_keys: &Vec<Pubkey>,
         deposit_amounts: Vec<u64>,
+        market: &Pubkey
     ) {
         let create_instruction = create(
             &spl_token::id(),
@@ -179,6 +181,7 @@ impl TestPool {
             &ctx.serum_program_id,
             &self.signal_provider.pubkey(),
             deposit_amounts,
+            vec![market.clone()]
         )
         .unwrap();
         wrap_process_transaction(
@@ -269,6 +272,10 @@ impl TestPool {
             self.seeds,
             side,
             limit_price,
+            0,
+            serum_market.coin_lot_size,
+            serum_market.pc_lot_size,
+            &self.mints[target_asset_index as usize].key,
             max_qty,
             serum_dex::matching::OrderType::Limit,
             0,

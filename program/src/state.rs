@@ -41,14 +41,14 @@ const STATUS_UNLOCKED_FLAG: u8 = STATUS_PENDING_ORDER_MASK;
 impl Sealed for PoolHeader {}
 
 impl Pack for PoolHeader {
-    const LEN: usize = 33;
+    const LEN: usize = 67;
 
     fn pack_into_slice(&self, target: &mut [u8]) {
+        let serum_program_id_bytes = self.serum_program_id.to_bytes();
+        target[0..32].copy_from_slice(&serum_program_id_bytes);
         let signal_provider_bytes = self.signal_provider.to_bytes();
-        for i in 0..32 {
-            target[i] = signal_provider_bytes[i];
-        }
-        target[32] = match self.status {
+        target[32..64].copy_from_slice(&signal_provider_bytes);
+        target[64] = match self.status {
             PoolStatus::Uninitialized => 0,
             PoolStatus::Unlocked => STATUS_UNLOCKED_FLAG,
             PoolStatus::Locked => STATUS_LOCKED_FLAG,
@@ -62,10 +62,7 @@ impl Pack for PoolHeader {
             }
         };
         let number_of_markets_bytes = self.number_of_markets.to_le_bytes();
-        for i in 33..35 {
-            target[i] = number_of_markets_bytes[i - 33];
-        }
-
+        target[65..67].copy_from_slice(&number_of_markets_bytes);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -148,13 +145,8 @@ impl Pack for PoolAsset {
     fn pack_into_slice(&self, target: &mut [u8]) {
         let mint_address_bytes = self.mint_address.to_bytes();
         let amount_bytes = self.amount_in_token.to_le_bytes();
-        for i in 0..32 {
-            target[i] = mint_address_bytes[i]
-        }
-
-        for i in 32..40 {
-            target[i] = amount_bytes[i - 32]
-        }
+        target[0..32].copy_from_slice(&mint_address_bytes);
+        target[32..40].copy_from_slice(&amount_bytes);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -229,7 +221,7 @@ mod tests {
         };
 
         let header_size = PoolHeader::LEN;
-        let mut state_array = [0u8; 113];
+        let mut state_array = [0u8; PoolHeader::LEN + 2 * PoolAsset::LEN];
         header_state.pack_into_slice(&mut state_array[..header_size]);
 
         let pool_asset = PoolAsset {

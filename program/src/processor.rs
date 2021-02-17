@@ -259,7 +259,7 @@ impl Processor {
         state_header.pack_into_slice(&mut data);
 
         // Write the authorized markets to the account data
-        pack_markets(&mut data[PoolHeader::LEN..], &markets);
+        pack_markets(&mut data[PoolHeader::LEN..], &markets)?;
 
         // Write the assets into the account data
         let mut offset = PoolHeader::LEN + PUBKEY_LENGTH * markets.len();

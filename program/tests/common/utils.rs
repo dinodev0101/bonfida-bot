@@ -202,7 +202,9 @@ pub async fn print_pool_data(
         .unwrap()
         .unwrap()
         .data;
-    let pool_assets = unpack_assets(&data[PoolHeader::LEN..])?;
+    let pool_header = PoolHeader::unpack(&data[..PoolHeader::LEN]).unwrap();
+    let pool_asset_offset = PoolHeader::LEN + 32 * (pool_header.number_of_markets as usize);
+    let pool_assets = unpack_assets(&data[pool_asset_offset..])?;
     for asset in pool_assets {
         print!("{:?}", asset);
         let pool_asset_key = get_associated_token_address(&pool_key, &asset.mint_address);
