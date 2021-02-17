@@ -185,82 +185,11 @@ pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<
     Ok(())
 }
 
-#[derive(Debug, PartialEq)]
-pub struct OrderTracker {
-    pub side: Side,
-    pub source_amount_per_token: u64,
-    pub pending_target_amount: u64,
-    pub source_total_amount: u64
-}
-
-impl Sealed for OrderTracker {}
-
-impl IsInitialized for OrderTracker {
-    fn is_initialized(&self) -> bool {
-        self.source_amount_per_token != 0
-    }
-}
-
-impl Pack for OrderTracker {
-    const LEN: usize = 32;
-
-    fn pack_into_slice(&self, dst: &mut [u8]) {
-        dst[0] = match self.side {
-            Side::Bid => 0,
-            Side::Ask => 1,
-        };
-
-        let source_amount_per_token_bytes = self.source_amount_per_token.to_le_bytes();
-        let pending_target_amount_bytes = self.pending_target_amount.to_le_bytes();
-        let source_total_amount_bytes = self.source_total_amount.to_le_bytes();
-
-        for i in 1..9 {
-            dst[i] = source_amount_per_token_bytes[i - 1]
-        }
-        for i in 9..17 {
-            dst[i] = pending_target_amount_bytes[i - 9]
-        }
-        for i in 17..25 {
-            dst[i] = source_total_amount_bytes[i - 17]
-        }
-    }
-
-    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let side = match src[0] {
-            0 => Side::Bid,
-            1 => Side::Ask,
-            _ => return Err(ProgramError::InvalidAccountData),
-        };
-
-        let source_amount_per_token = src
-            .get(1..9)
-            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
-            .ok_or(ProgramError::InvalidAccountData)?;
-
-        let pending_target_amount = src
-            .get(9..17)
-            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
-            .ok_or(ProgramError::InvalidAccountData)?;
-
-        let source_total_amount = src
-            .get(17..25)
-            .map(|slice| u64::from_le_bytes(slice.try_into().unwrap()))
-            .ok_or(ProgramError::InvalidAccountData)?;
-
-        Ok(Self {
-            side,
-            source_amount_per_token,
-            pending_target_amount,
-            source_total_amount
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU8;
 
-    use super::{unpack_assets, OrderTracker, PoolAsset, PoolHeader, PoolStatus};
+    use super::{unpack_assets, PoolAsset, PoolHeader, PoolStatus};
     use serum_dex::matching::Side;
     use solana_program::{
         program_pack::{IsInitialized, Pack},
@@ -340,28 +269,6 @@ mod tests {
             status: PoolStatus::Uninitialized,
         };
         assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
-    }
-
-    #[test]
-    fn test_order_tracker_packing() {
-        let mut order_tracker = OrderTracker {
-            side: Side::Ask,
-            source_amount_per_token: 54,
-            pending_target_amount: 456,
-            source_total_amount: 3212,
-        };
-        assert_eq!(
-            order_tracker,
-            OrderTracker::unpack(&get_packed(&order_tracker)).unwrap()
-        );
-
-        order_tracker.side = Side::Bid;
-        order_tracker.source_amount_per_token = u64::MAX - 42;
-        order_tracker.pending_target_amount = u64::MAX - 645;
-        assert_eq!(
-            order_tracker,
-            OrderTracker::unpack(&get_packed(&order_tracker)).unwrap()
-        );
     }
 
     fn get_packed<T: Pack>(obj: &T) -> Vec<u8> {

@@ -59,19 +59,3 @@ pub fn check_signal_provider(
     }
     Ok(())
 }
-
-pub fn check_order_tracker(
-    program_id: &Pubkey,
-    order_tracker_key: &Pubkey,
-    pool_seed: &[u8; 32],
-    openorders_account_key: &Pubkey,
-) -> ProgramResult {
-    let (order_state_key, _) =
-        Pubkey::find_program_address(&[pool_seed, &openorders_account_key.to_bytes()], program_id);
-    if &order_state_key != order_tracker_key {
-        msg!("Provided order state account does not match the provided OpenOrders account and pool seed.");
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    Ok(())
-}

@@ -225,11 +225,11 @@ impl SerumMarket {
         .await
         .unwrap();
 
-        let (matching_open_order, create_matching_order_tracker_instruction) =
+        let (matching_open_order, create_matching_order_instruction) =
             SerumMarket::create_dex_account(&ctx, 3216).unwrap();
         wrap_process_transaction(
             &ctx,
-            vec![create_matching_order_tracker_instruction],
+            vec![create_matching_order_instruction],
             vec![&matching_open_order],
         )
         .await

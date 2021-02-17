@@ -2,12 +2,12 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 #[cfg(not(feature = "fuzz"))]
 use bonfida_bot::instruction::{
-    cancel_order, create, create_order, deposit, init, init_order_tracker, redeem, settle_funds,
+    cancel_order, create, create_order, deposit, init, redeem, settle_funds,
 };
 
 #[cfg(feature = "fuzz")]
 use crate::instruction::{
-    cancel_order, create, create_order, deposit, init, init_order_tracker, redeem, settle_funds,
+    cancel_order, create, create_order, deposit, init, redeem, settle_funds,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use serum_dex::{instruction::SelfTradeBehavior, matching::Side};
@@ -225,32 +225,16 @@ impl TestPool {
     ) -> Order {
         let (open_order, create_open_order_instruction) =
             SerumMarket::create_dex_account(&ctx, 3216).unwrap();
-        let (order_tracker_key, _) = Pubkey::find_program_address(
-            &[&self.seeds, &open_order.pubkey().to_bytes()],
-            &self.program_id,
-        );
-        let init_tracker_instruction = init_order_tracker(
-            &system_program::id(),
-            &sysvar::rent::id(),
-            &self.program_id,
-            &order_tracker_key,
-            &open_order.pubkey(),
-            &ctx.test_state.payer.pubkey(),
-            &self.key,
-            self.seeds,
-        )
-        .unwrap();
 
         wrap_process_transaction(
             &ctx,
-            vec![create_open_order_instruction, init_tracker_instruction],
+            vec![create_open_order_instruction],
             vec![&open_order],
         )
         .await
         .unwrap();
         Order {
             open_orders_account: open_order.pubkey(),
-            order_tracker_account: order_tracker_key,
         }
     }
 
@@ -273,7 +257,6 @@ impl TestPool {
             source_asset_index,
             target_asset_index,
             &order.open_orders_account,
-            &order.order_tracker_account,
             &serum_market.req_q_key.pubkey(),
             &self.key,
             &serum_market.coin_vault,
@@ -312,7 +295,6 @@ impl TestPool {
             &self.program_id,
             &serum_market.market_key.pubkey(),
             &order.open_orders_account,
-            &order.order_tracker_account,
             &self.key,
             &self.mint_key,
             &serum_market.coin_vault,
@@ -406,5 +388,4 @@ pub struct TestMint {
 #[derive(Clone)]
 pub struct Order {
     pub open_orders_account: Pubkey,
-    pub order_tracker_account: Pubkey,
 }

@@ -35,24 +35,6 @@ pub enum PoolInstruction {
         // The maximum number of token asset types the pool will ever be able to hold
         max_number_of_assets: u32,
     },
-    /// Initializes an empty open order state tracking account associated to a given pool.
-    /// The data of this account is used to track the state of an order on the pool that waiting
-    /// to be settled or canceled. This is needed to compute the new token amounts corresponding
-    /// to one pooltoken after the order is closed.
-    ///
-    /// Accounts expected by this instruction:
-    ///
-    ///   * Single owner
-    ///   0. `[]` The system program account
-    ///   1. `[]` The sysvar rent program account
-    ///   2. `[]` The pool account
-    ///   3. `[writable]` The order tracking account
-    ///   4. `[]` The open orders account
-    ///   5. `[writable, signer]` The fee payer account
-    InitOrderTracker {
-        // The seed of the pool account
-        pool_seed: [u8; 32],
-    },
     /// Creates a new pool from an empty (uninitialized) one by performing the first deposit
     /// of any number of different tokens and setting the pubkey of the signal provider.
     /// The first deposit will fix the initial value of 1 pooltoken (credited to the target)
@@ -108,7 +90,6 @@ pub enum PoolInstruction {
     ///    1. `[writable]` The market account
     ///    2. `[writable]` The payer pool asset account
     ///    3. `[writable]` The relevant OpenOrders account
-    ///    4. `[writable]` The relevant order tracker account
     ///    5. `[writable]` The Serum request queue
     ///    6. `[writable]` The pool account
     ///    7. `[writable]` The coin vault
@@ -150,7 +131,6 @@ pub enum PoolInstruction {
     ///
     ///    0. `[writable]` The market account
     ///    1. `[writable]` The pool's OpenOrders account
-    ///    2. `[writable]` The relevant pool order tracker account
     ///    3. `[writable]` the pool account
     ///    4. `[]` the pool token mint
     ///    5. `[writable]` coin vault
@@ -213,13 +193,6 @@ impl PoolInstruction {
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
                     .unwrap();
-                Self::InitOrderTracker { pool_seed }
-            }
-            2 => {
-                let pool_seed: [u8; 32] = rest
-                    .get(..32)
-                    .and_then(|slice| slice.try_into().ok())
-                    .unwrap();
                 let signal_provider_key = rest
                     .get(32..64)
                     .and_then(|slice| slice.try_into().ok())
@@ -242,7 +215,7 @@ impl PoolInstruction {
                     deposit_amounts,
                 }
             }
-            3 => {
+            2 => {
                 let pool_seed: [u8; 32] = rest
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
@@ -257,7 +230,7 @@ impl PoolInstruction {
                     pool_token_amount,
                 }
             }
-            4 => {
+            3 => {
                 let pool_seed: [u8; 32] = rest
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
@@ -320,7 +293,7 @@ impl PoolInstruction {
                     target_index,
                 }
             }
-            5 => {
+            4 => {
                 let pool_seed: [u8; 32] = rest
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
@@ -342,7 +315,7 @@ impl PoolInstruction {
                     order_id,
                 }
             }
-            6 => {
+            5 => {
                 let pool_seed: [u8; 32] = rest
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
@@ -363,7 +336,7 @@ impl PoolInstruction {
                     coin_index,
                 }
             }
-            7 => {
+            6 => {
                 let pool_seed: [u8; 32] = rest
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
@@ -396,16 +369,12 @@ impl PoolInstruction {
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&max_number_of_assets.to_le_bytes());
             }
-            Self::InitOrderTracker { pool_seed } => {
-                buf.push(1);
-                buf.extend_from_slice(pool_seed);
-            }
             Self::Create {
                 pool_seed,
                 signal_provider_key,
                 deposit_amounts,
             } => {
-                buf.push(2);
+                buf.push(1);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
                 for amount in deposit_amounts.iter() {
@@ -416,7 +385,7 @@ impl PoolInstruction {
                 pool_seed,
                 pool_token_amount,
             } => {
-                buf.push(3);
+                buf.push(2);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&pool_token_amount.to_le_bytes());
             }
@@ -431,7 +400,7 @@ impl PoolInstruction {
                 source_index,
                 target_index,
             } => {
-                buf.push(4);
+                buf.push(3);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(
                     &match side {
@@ -466,7 +435,7 @@ impl PoolInstruction {
                 side,
                 order_id,
             } => {
-                buf.push(5);
+                buf.push(4);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(
                     &match side {
@@ -482,7 +451,7 @@ impl PoolInstruction {
                 pc_index,
                 coin_index,
             } => {
-                buf.push(6);
+                buf.push(5);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&pc_index.to_le_bytes());
                 buf.extend_from_slice(&coin_index.to_le_bytes());
@@ -491,7 +460,7 @@ impl PoolInstruction {
                 pool_seed,
                 pool_token_amount,
             } => {
-                buf.push(7);
+                buf.push(6);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&pool_token_amount.to_le_bytes());
             }
@@ -523,33 +492,6 @@ pub fn init(
         AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*pool_key, false),
         AccountMeta::new(*mint_key, false),
-        AccountMeta::new(*payer_key, true),
-    ];
-    Ok(Instruction {
-        program_id: *bonfidabot_program_id,
-        accounts,
-        data,
-    })
-}
-
-// Creates a `InitOrderTracker` instruction
-pub fn init_order_tracker(
-    system_program_id: &Pubkey,
-    rent_program_id: &Pubkey,
-    bonfidabot_program_id: &Pubkey,
-    order_tracker_key: &Pubkey,
-    openorders_key: &Pubkey,
-    payer_key: &Pubkey,
-    pool_key: &Pubkey,
-    pool_seed: [u8; 32],
-) -> Result<Instruction, ProgramError> {
-    let data = PoolInstruction::InitOrderTracker { pool_seed }.pack();
-    let accounts = vec![
-        AccountMeta::new_readonly(*system_program_id, false),
-        AccountMeta::new_readonly(*rent_program_id, false),
-        AccountMeta::new_readonly(*pool_key, false),
-        AccountMeta::new(*order_tracker_key, false),
-        AccountMeta::new_readonly(*openorders_key, false),
         AccountMeta::new(*payer_key, true),
     ];
     Ok(Instruction {
@@ -685,7 +627,6 @@ pub fn create_order(
     payer_pool_asset_index: u64,
     target_pool_asset_index: u64,
     openorders_account: &Pubkey,
-    order_tracker_account: &Pubkey,
     serum_request_queue: &Pubkey,
     pool_account: &Pubkey,
     coin_vault: &Pubkey,
@@ -719,7 +660,6 @@ pub fn create_order(
         AccountMeta::new(*market, false),
         AccountMeta::new(*payer_pool_asset_account, false),
         AccountMeta::new(*openorders_account, false),
-        AccountMeta::new(*order_tracker_account, false),
         AccountMeta::new(*serum_request_queue, false),
         AccountMeta::new(*pool_account, false),
         AccountMeta::new(*coin_vault, false),
@@ -777,7 +717,6 @@ pub fn settle_funds(
     bonfidabot_program_id: &Pubkey,
     market: &Pubkey,
     openorders_account: &Pubkey,
-    order_tracker: &Pubkey,
     pool_account: &Pubkey,
     pool_token_mint: &Pubkey,
     coin_vault: &Pubkey,
@@ -802,7 +741,6 @@ pub fn settle_funds(
     let mut accounts = vec![
         AccountMeta::new(*market, false),
         AccountMeta::new(*openorders_account, false),
-        AccountMeta::new(*order_tracker, false),
         AccountMeta::new(*pool_account, false),
         AccountMeta::new_readonly(*pool_token_mint, false),
         AccountMeta::new(*coin_vault, false),
@@ -844,14 +782,6 @@ mod test {
         assert_eq!(
             original_init,
             PoolInstruction::unpack(&original_init.pack()).unwrap()
-        );
-
-        let original_init_order_tracker = PoolInstruction::InitOrderTracker {
-            pool_seed: [50u8; 32],
-        };
-        assert_eq!(
-            original_init_order_tracker,
-            PoolInstruction::unpack(&original_init_order_tracker.pack()).unwrap()
         );
 
         let original_create = PoolInstruction::Create {

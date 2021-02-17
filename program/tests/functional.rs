@@ -1,8 +1,5 @@
 #![cfg(feature = "test-bpf")]
-use bonfida_bot::{
-    entrypoint::process_instruction,
-    state::FIDA_MINT_KEY,
-};
+use bonfida_bot::{entrypoint::process_instruction, state::FIDA_MINT_KEY};
 use serum_dex::{instruction::SelfTradeBehavior, matching::Side};
 use solana_program::{
     program_pack::Pack, pubkey::Pubkey,
@@ -11,10 +8,7 @@ use solana_program_test::{ProgramTest, ProgramTestBanksClientExt, ProgramTestCon
 use solana_sdk::{account::Account, signature::Keypair, signature::Signer};
 
 use spl_token;
-use std::{
-    num::{NonZeroU16, NonZeroU64},
-    str::FromStr,
-};
+use std::{convert::TryInto, num::{NonZeroU16, NonZeroU64}, str::FromStr};
 
 mod common;
 
@@ -25,6 +19,27 @@ use common::pool::TestPool;
 use common::market::SerumMarket;
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
+
+use solana_client::rpc_client::RpcClient;
+
+
+#[test]
+fn testitest() {
+    let rpc_client = RpcClient::new("https://solana-api.projectserum.com".into());
+    let open_order_data = rpc_client.get_account_data(&Pubkey::from_str("4rHBgrYgiN9ibuFghzBheMJRtYrP2zcGZTrGNt8SM1cw").unwrap()).unwrap();
+    let open_order_view = OpenOrderView::parse(open_order_data);
+    let market_data = rpc_client.get_account_data(&Pubkey::from_str("FrDavxi4QawYnQY259PVfYUjUvuyPNfqSXbLBqMnbfWJ").unwrap()).unwrap();
+    let coin_lot_size =
+            u64::from_le_bytes(market_data[349..357].try_into().ok().unwrap());
+    let pc_lot_size =
+        u64::from_le_bytes(market_data[357..365].try_into().ok().unwrap());
+
+    println!("{:?}", open_order_view);
+    println!("{:#?}", coin_lot_size);
+    println!("{:#?}", pc_lot_size);
+    // USDC lot size: 1
+    // FIDA lot size: 100_000
+}
 
 
 #[tokio::test]

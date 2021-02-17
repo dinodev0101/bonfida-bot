@@ -10,7 +10,7 @@
   "module": "lib/index.esm.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/main.ts",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/test.ts",
     "build": "rollup -c rollup.config.ts",
     "lint": "npm run pretty && eslint .",
     "lint:fix": "npm run pretty:fix && eslint . --fix",
