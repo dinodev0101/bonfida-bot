@@ -35,9 +35,11 @@ export async function findAssociatedTokenAddress(
 export type MarketData = {
   address: PublicKey,
   coinMintKey: PublicKey,
+  coinVaultKey: PublicKey,
+  coinLotSize: PublicKey,
   pcMintKey: PublicKey,
-  coinVaultKey: PublicKey
   pcVaultKey: PublicKey,
+  pcLotSize: PublicKey,
   vaultSignerNonce: Numberu64,
   reqQueueKey: PublicKey,
 }
@@ -50,9 +52,11 @@ export async function getMarketData(connection:Connection, marketKey: PublicKey)
   let marketData = {
     adress: marketKey,
     coinMintKey: new PublicKey(marketAccountInfo.data.slice(53, 85)),
-    pcMintKey: new PublicKey(marketAccountInfo.data.slice(85, 117)),
     coinVaultKey: new PublicKey(marketAccountInfo.data.slice(117, 149)),
+    coinLotSize: new PublicKey(marketAccountInfo.data.slice(349, 357)),
+    pcMintKey: new PublicKey(marketAccountInfo.data.slice(85, 117)),
     pcVaultKey: new PublicKey(marketAccountInfo.data.slice(165, 197)),
+    pcLotSize: new PublicKey(marketAccountInfo.data.slice(357, 365)),
     vaultSignerNonce: new PublicKey(marketAccountInfo.data.slice(45, 53)),
     reqQueueKey: new PublicKey(marketAccountInfo.data.slice(221, 253)),
   }

@@ -24,7 +24,7 @@ import {
   getMarketData,
   Numberu128,
 } from './utils';
-import { OrderSide, OrderType, PoolAsset, PoolHeader, SelfTradeBehavior, unpack_assets } from './state';
+import { OrderSide, OrderType, PoolAsset, PoolHeader, SelfTradeBehavior, unpack_assets, PUBKEY_LENGTH, unpack_markets } from './state';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
 
@@ -32,11 +32,14 @@ import * as crypto from "crypto";
 export async function createPool(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
+  serumProgramId: PublicKey,
   sourceOwnerKey: Account,
   sourceAssetKeys: Array<PublicKey>,
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
   maxNumberOfAssets: number,
+  number_of_markets: Numberu16,
+  markets: Array<PublicKey>,
   payer: Account,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
 
@@ -45,11 +48,11 @@ export async function createPool(
   let poolKey: PublicKey;
   let bump: number;
   let array_one = new Uint8Array(1);
-  array_one[0] = 1; 
+  array_one[0] = 1;
   while (true) {
     poolSeed = crypto.randomBytes(32);
     [poolKey, bump] = await PublicKey.findProgramAddress(
-      [poolSeed.slice(0,31)],
+      [poolSeed.slice(0, 31)],
       bonfidaBotProgramId,
     );
     poolSeed[31] = bump;
@@ -68,15 +71,16 @@ export async function createPool(
 
   // Initialize the pool
   let initTxInstruction = initInstruction(
-      TOKEN_PROGRAM_ID,
-      SystemProgram.programId,
-      SYSVAR_RENT_PUBKEY,
-      bonfidaBotProgramId,
-      poolMintKey,
-      payer.publicKey,
-      poolKey,
-      [poolSeed],
-      maxNumberOfAssets 
+    TOKEN_PROGRAM_ID,
+    SystemProgram.programId,
+    SYSVAR_RENT_PUBKEY,
+    bonfidaBotProgramId,
+    poolMintKey,
+    payer.publicKey,
+    poolKey,
+    [poolSeed],
+    maxNumberOfAssets,
+    number_of_markets
   );
 
   // Create the pool asset accounts
@@ -124,8 +128,10 @@ export async function createPool(
     targetPoolTokenKey,
     sourceOwnerKey.publicKey,
     sourceAssetKeys,
+    serumProgramId,
     signalProviderKey,
     depositAmounts,
+    markets
   );
   let txInstructions = [initTxInstruction].concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
@@ -147,7 +153,7 @@ export async function deposit(
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
   let array_one = new Uint8Array(1);
-  array_one[0] = 1; 
+  array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(poolSeed.concat(array_one), bonfidaBotProgramId);
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -156,7 +162,9 @@ export async function deposit(
   }
   let poolData = poolInfo.data;
   let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
-  let poolAssets: Array<PoolAsset> = unpack_assets(poolData.slice(PoolHeader.LEN));
+  let poolAssets: Array<PoolAsset> = unpack_assets(
+    poolData.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH)
+  );
   let poolAssetKeys: Array<PublicKey> = [];
   for (var asset of poolAssets) {
     let assetKey = await findAssociatedTokenAddress(poolKey, asset.mintAddress);
@@ -216,7 +224,7 @@ export async function createOrder(
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
-  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0,PoolHeader.LEN)).signalProvider;
+  let poolHeader = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN));
 
   let marketData = await getMarketData(connection, market)
   let sourceMintKey: PublicKey;
@@ -229,10 +237,15 @@ export async function createOrder(
     targetMintKey = marketData.coinMintKey;
   }
 
-  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
+  let authorizedMarkets = unpack_markets(poolInfo.data.slice(
+    PoolHeader.LEN, PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH
+  ), poolHeader.numberOfMarkets);
+  let marketIndex = authorizedMarkets.map(m => {return m.toBuffer()}).indexOf(market.toBuffer());
+
+  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH));
   // @ts-ignore
   let sourcePoolAssetIndex = new Numberu64(poolAssets
-    .map(a => {return a.mintAddress.toString()})
+    .map(a => { return a.mintAddress.toString() })
     .indexOf(sourceMintKey.toString())
   );
   let sourcePoolAssetKey = await findAssociatedTokenAddress(
@@ -242,7 +255,7 @@ export async function createOrder(
 
   // @ts-ignore
   let targetPoolAssetIndex = new Numberu64(poolAssets
-    .map(a => {return a.mintAddress.toString()})
+    .map(a => { return a.mintAddress.toString() })
     .indexOf(targetMintKey.toString())
   );
 
@@ -261,7 +274,7 @@ export async function createOrder(
 
   let createOrderTxInstruction = createOrderInstruction(
     bonfidaBotProgramId,
-    signalProviderKey,
+    poolHeader.signalProvider,
     market,
     sourcePoolAssetKey,
     sourcePoolAssetIndex,
@@ -278,15 +291,20 @@ export async function createOrder(
     [poolSeed],
     side,
     limitPrice,
+    // @ts-ignore
+    new Numberu16(marketIndex),
+    marketData.coinLotSize,
+    marketData.pcLotSize,
+    targetMintKey,
     maxQuantity,
     orderType,
     clientId,
-    selfTradeBehavior
+    selfTradeBehavior,
   );
 
-  return [openOrderAccount, 
+  return [openOrderAccount,
     [createOpenOrderAccountInstruction,
-    createOrderTxInstruction]
+      createOrderTxInstruction]
   ]
 }
 
@@ -302,7 +320,7 @@ export async function settleFunds(
 
   let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
   let array_one = new Uint8Array(1);
-  array_one[0] = 1; 
+  array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress([poolSeed, array_one], bonfidaBotProgramId);
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
@@ -310,11 +328,14 @@ export async function settleFunds(
   }
 
   let marketData = await getMarketData(connection, market);
-  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN));
+  let poolHeader = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN));
+  let poolAssets = unpack_assets(poolInfo.data.slice(
+    PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH
+  ));
 
   // @ts-ignore
   let coinPoolAssetIndex = new Numberu64(poolAssets
-    .map(a => {return a.mintAddress.toString()})
+    .map(a => { return a.mintAddress.toString() })
     .indexOf(marketData.coinMintKey.toString())
   );
   let coinPoolAssetKey = await findAssociatedTokenAddress(
@@ -323,7 +344,7 @@ export async function settleFunds(
   );
   // @ts-ignore
   let pcPoolAssetIndex = new Numberu64(poolAssets
-    .map(a => {return a.mintAddress.toString()})
+    .map(a => { return a.mintAddress.toString() })
     .indexOf(marketData.pcMintKey.toString())
   );
   let pcPoolAssetKey = await findAssociatedTokenAddress(
@@ -374,7 +395,7 @@ export async function cancelOrder(
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
-  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0,PoolHeader.LEN)).signalProvider;
+  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN)).signalProvider;
   let marketData = await getMarketData(connection, market);
 
   let side = Number(orderId) & (1 << 64);
@@ -417,7 +438,9 @@ export async function redeem(
   }
   let poolData = poolInfo.data;
   let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
-  let poolAssets: Array<PoolAsset> = unpack_assets(poolData.slice(PoolHeader.LEN));
+  let poolAssets = unpack_assets(
+    poolInfo.data.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH)
+  );
   let poolAssetKeys: Array<PublicKey> = [];
   for (var asset of poolAssets) {
     let assetKey = await findAssociatedTokenAddress(poolKey, asset.mintAddress);
@@ -438,6 +461,3 @@ export async function redeem(
   )
   return [redeemTxInstruction]
 }
-
-// TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy  
-// TODO Check out coin/pc vs source/target in program instructions

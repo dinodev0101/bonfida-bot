@@ -43,4 +43,3 @@ export async function iterativeDeposit(
 }
 
 // TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy  
-// TODO Check out coin/pc vs source/target in program instructions

@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { Numberu64 } from './utils';
+import { Numberu16, Numberu64 } from './utils';
 
 
 // Serum analog types
@@ -17,6 +17,8 @@ export enum SelfTradeBehavior {
   CancelProvide,
 }
 
+export const PUBKEY_LENGTH: number = 32;
+
 const STATUS_PENDING_ORDER_FLAG: number = 1 << 6;
 const STATUS_PENDING_ORDER_MASK: number = 0x3f;
 const STATUS_LOCKED_FLAG: number = 2 << 6;
@@ -33,26 +35,23 @@ export enum PoolStatusID {
 export type PoolStatus = [PoolStatusID, number];
 
 export class PoolHeader {
-  static LEN = 33;
+  static LEN = 67;
+  serumProgramId!: PublicKey;
   signalProvider!: PublicKey;
   status!: PoolStatus;
+  numberOfMarkets!: Numberu16;
 
-  constructor(signalProvider: PublicKey, status: PoolStatus) {
+  constructor(
+    serumProgramId: PublicKey,
+    signalProvider: PublicKey,
+    status: PoolStatus,
+    numberOfMarkets: Numberu16
+  ) {
+    this.serumProgramId = serumProgramId;
     this.signalProvider = signalProvider;
     this.status = status;
+    this.numberOfMarkets = numberOfMarkets;
   }
-
-  // function match_status(status_byte): 
-
-  // public toBuffer(): Buffer {
-  //   let result = [this.signalProvider.toBuffer()];
-  //   let status_byte = 0x2;
-  //   switch(status_byte) {
-  //     case PoolStatus.Uninitialized:
-  //       0
-  //     case 
-  //   }
-  // }
 
   static match_status(status_byte: Buffer): PoolStatus {
     let sByte = status_byte.readInt8();
@@ -77,9 +76,12 @@ export class PoolHeader {
   }
 
   static fromBuffer(buf: Buffer): PoolHeader {
-    const signalProvider: PublicKey = new PublicKey(buf.slice(0, 32));
-    const status: PoolStatus = PoolHeader.match_status(buf.slice(32, 33));
-    return new PoolHeader(signalProvider, status);
+    const serumProgramId: PublicKey = new PublicKey(buf.slice(0, 32));
+    const signalProvider: PublicKey = new PublicKey(buf.slice(32, 64));
+    const status: PoolStatus = PoolHeader.match_status(buf.slice(64, 65));
+    // @ts-ignore
+    const numberOfMarkets: Numberu16 = new Numberu16(buf.slice(65, 67));
+    return new PoolHeader(serumProgramId, signalProvider, status, numberOfMarkets);
   }
 }
 
@@ -124,34 +126,12 @@ export function unpack_assets(input: Buffer): Array<PoolAsset> {
   return output;
 }
 
-// export class ContractInfo {
-//   destinationAddress!: PublicKey;
-//   mintAddress!: PublicKey;
-//   schedules!: Array<Schedule>;
-
-//   constructor(
-//     destinationAddress: PublicKey,
-//     mintAddress: PublicKey,
-//     schedules: Array<Schedule>,
-//   ) {
-//     this.destinationAddress = destinationAddress;
-//     this.mintAddress = mintAddress;
-//     this.schedules = schedules;
-//   }
-
-//   static fromBuffer(buf: Buffer): ContractInfo | undefined {
-//     const header = VestingScheduleHeader.fromBuffer(buf.slice(0, 65));
-//     if (!header.isInitialized) {
-//       return undefined;
-//     }
-//     const schedules: Array<Schedule> = [];
-//     for (let i = 65; i < buf.length; i += 16) {
-//       schedules.push(Schedule.fromBuffer(buf.slice(i, i + 16)));
-//     }
-//     return new ContractInfo(
-//       header.destinationAddress,
-//       header.mintAddress,
-//       schedules,
-//     );
-//   }
-// }
+export function unpack_markets(input: Buffer, numberOfMarkets: Numberu16): Array<PublicKey> {
+  let markets: Array<PublicKey> = new Array();
+  let offset = 0;
+  for (var i=0; i< new Number(numberOfMarkets); i++) {
+    markets.push(new PublicKey(input.slice(offset, offset + 32)));
+    offset += 32;
+  }
+  return markets;
+}

@@ -18,12 +18,15 @@ export function initInstruction(
   poolKey: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
   maxNumberOfAssets: number,
+  number_of_markets: Numberu16
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([0])),
     Buffer.concat(poolSeed),
     // @ts-ignore
     new Numberu32(maxNumberOfAssets).toBuffer(),
+    // @ts-ignore
+    new Numberu16(number_of_markets).toBuffer(),
   ];
 
   const data = Buffer.concat(buffers);
@@ -77,17 +80,24 @@ export function createInstruction(
   targetPoolTokenKey: PublicKey,
   sourceOwnerKey: PublicKey,
   sourceAssetKeys: Array<PublicKey>,
+  serumProgramId: PublicKey,
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
+  markets: Array<PublicKey>
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([2])),
+    Buffer.from(Int8Array.from([1])),
     Buffer.concat(poolSeed),
-    signalProviderKey.toBuffer()
+    serumProgramId.toBuffer(),
+    signalProviderKey.toBuffer(),
   ];
   for (var amount of depositAmounts) {
     // @ts-ignore
     buffers.push(new Numberu64(amount).toBuffer())
+  }
+  for (var market of markets) {
+    // @ts-ignore
+    buffers.push(market.toBuffer())
   }
 
   const data = Buffer.concat(buffers);
@@ -153,7 +163,7 @@ export function depositInstruction(
   poolTokenAmount: Numberu64,
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([3])),
+    Buffer.from(Int8Array.from([2])),
     Buffer.concat(poolSeed),
     // @ts-ignore
     poolTokenAmount.toBuffer()
@@ -228,13 +238,17 @@ export function createOrderInstruction(
   poolSeed: Array<Buffer | Uint8Array>,
   side: OrderSide,
   limitPrice: Numberu64,
+  market_index: Numberu16,
+  coin_lot_size: Numberu64,
+  pc_lot_size: Numberu64,
+  target_mint: PublicKey,
   maxQuantity: Numberu16,
   orderType: OrderType,
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([4])),
+    Buffer.from(Int8Array.from([3])),
     Buffer.concat(poolSeed),
     Buffer.from(Int8Array.from([side])),
     limitPrice.toBuffer(),
@@ -244,6 +258,10 @@ export function createOrderInstruction(
     Buffer.from(Int8Array.from([selfTradeBehavior])),
     payerPoolAssetIndex.toBuffer(),
     targetPoolAssetIndex.toBuffer(),
+    market_index.toBuffer(),
+    coin_lot_size.toBuffer(),
+    pc_lot_size.toBuffer(),
+    target_mint.toBuffer(),
   ];
   const data = Buffer.concat(buffers);
 
@@ -332,7 +350,7 @@ export function cancelOrderInstruction(
   orderId: Numberu128,
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([5])),
+    Buffer.from(Int8Array.from([4])),
     Buffer.concat(poolSeed),
     Buffer.from(Int8Array.from([side])),
     orderId.toBuffer()
@@ -398,7 +416,7 @@ export function settleFundsInstruction(
   coinPoolAssetIndex: Numberu64,
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([6])),
+    Buffer.from(Int8Array.from([5])),
     Buffer.concat(poolSeed),
     pcPoolAssetIndex.toBuffer(),
     coinPoolAssetIndex.toBuffer(),
@@ -490,7 +508,7 @@ export function redeemInstruction(
   poolTokenAmount: Numberu64,
 ): TransactionInstruction {
   let buffers = [
-    Buffer.from(Int8Array.from([3])),
+    Buffer.from(Int8Array.from([6])),
     Buffer.concat(poolSeed),
     // @ts-ignore
     new Numberu64(poolTokenAmount).toBuffer()
