@@ -6,7 +6,7 @@ use solana_program::{
     sysvar,
 };
 use solana_program_test::{BanksClient, ProgramTestBanksClientExt};
-use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::{signature::{Keypair, Signer}, transport::TransportError};
 use spl_token::instruction::mint_to;
 
 use super::utils::{Context, OpenOrderView, create_token_account, wrap_process_transaction};
@@ -34,11 +34,11 @@ impl SerumMarket {
         ctx: &Context,
         coin_mint: &Pubkey,
         pc_mint: &Pubkey,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<Self, TransportError> {
         let (market_key, create_market) =
             Self::create_dex_account(&ctx, 376)?;
         let (req_q_key, create_req_q) =
-            Self::create_dex_account(&ctx, 640)?;
+            Self::create_dex_account(&ctx, 6400)?;
         let (event_q_key, create_event_q) =
             Self::create_dex_account(&ctx, 1 << 20)?;
         let (bids_key, create_bids) =
@@ -68,8 +68,7 @@ impl SerumMarket {
             create_instructions,
             keys,
         )
-        .await
-        .unwrap();
+        .await?;
 
         // Create Vaults
         let coin_vault = Keypair::new();
@@ -83,8 +82,7 @@ impl SerumMarket {
         ctx.test_state.banks_client
             .to_owned()
             .process_transaction(create_coin_vault)
-            .await
-            .unwrap();
+            .await?;
         let create_pc_vault = create_token_account(
             &ctx,
             pc_mint,
@@ -94,8 +92,7 @@ impl SerumMarket {
         ctx.test_state.banks_client
             .to_owned()
             .process_transaction(create_pc_vault)
-            .await
-            .unwrap();
+            .await?;
 
         // Create fee receivers
         let coin_fee_receiver = Keypair::new();
@@ -109,8 +106,7 @@ impl SerumMarket {
         ctx.test_state.banks_client
             .to_owned()
             .process_transaction(create_coin_fee_receiver)
-            .await
-            .unwrap();
+            .await?;
         let create_pc_fee_receiver = create_token_account(
             &ctx,
             &pc_mint,
@@ -120,8 +116,7 @@ impl SerumMarket {
         ctx.test_state.banks_client
             .to_owned()
             .process_transaction(create_pc_fee_receiver)
-            .await
-            .unwrap();
+            .await?;
 
         let init_market_instruction = serum_dex::instruction::initialize_market(
             &market_key.pubkey(),
@@ -138,7 +133,7 @@ impl SerumMarket {
             1,
             vault_signer_nonce,
             100,
-        )?;
+        ).unwrap();
         let serum_market = SerumMarket {
             market_key,
             req_q_key,
@@ -161,8 +156,7 @@ impl SerumMarket {
             vec![init_market_instruction],
             vec![],
         )
-        .await
-        .unwrap();
+        .await?;
 
         Ok(serum_market)
     }
@@ -170,7 +164,7 @@ impl SerumMarket {
     pub fn create_dex_account(
         ctx: &Context,
         unpadded_len: usize,
-    ) -> Result<(Keypair, Instruction), ProgramError> {
+    ) -> Result<(Keypair, Instruction), TransportError> {
         let len = unpadded_len + 12;
         let key = Keypair::new();
         let create_account_instr = solana_sdk::system_instruction::create_account(
@@ -305,7 +299,7 @@ impl SerumMarket {
             &self.event_q_key.pubkey(),
             &self.coin_fee_receiver,
             &self.pc_fee_receiver,
-            10,
+            500,
         )
         .unwrap();
         wrap_process_transaction(
@@ -323,7 +317,7 @@ impl SerumMarket {
             &self.event_q_key.pubkey(),
             &self.coin_fee_receiver,
             &self.pc_fee_receiver,
-            10,
+            500,
         )
         .unwrap();
         wrap_process_transaction(

@@ -16,17 +16,9 @@ use crate::state::FIDA_MINT_KEY;
 #[cfg(feature = "fuzz")]
 use crate::state::{unpack_assets, PoolHeader};
 
-use solana_program::{
-    hash::Hash, instruction::Instruction, program_error::ProgramError, program_option::COption,
-    program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction, 
-};
+use solana_program::{hash::Hash, instruction::{Instruction, InstructionError}, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction};
 use solana_program_test::{BanksClient, ProgramTest, ProgramTestBanksClientExt, ProgramTestContext, find_file, read_file};
-use solana_sdk::{
-    account::Account,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-    transport::TransportError,
-};
+use solana_sdk::{account::Account, signature::{Keypair, Signer}, transaction::{Transaction, TransactionError}, transport::TransportError};
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{instruction::initialize_account, state::Mint};
 
@@ -316,4 +308,62 @@ pub fn clone_keypair(k: &Keypair) -> Keypair {
 #[cfg(feature = "fuzz")]
 pub fn arbitraryNonZeroU8(u: &mut Unstructured<'_>) -> arbitrary::Result<NonZeroU8>{
     Ok(NonZeroU8::new(u.arbitrary()?).unwrap_or(NonZeroU8::new(1).unwrap()))
+}
+
+pub fn result_err_filter(e: Result<(), TransportError>) -> Result<(), TransportError>{
+    if let Err(TransportError::TransactionError(te)) = &e {
+        match te {
+            TransactionError::InstructionError(_, ie) => {
+                match ie {
+                    InstructionError::InvalidArgument
+                    | InstructionError::InvalidInstructionData
+                    | InstructionError::InvalidAccountData
+                    | InstructionError::InsufficientFunds
+                    | InstructionError::AccountAlreadyInitialized
+                    | InstructionError::InvalidSeeds
+                    | InstructionError::Custom(2)
+                    | InstructionError::Custom(3)
+                    | InstructionError::Custom(4) => {Ok(())},
+                    _ => {
+                        print!("{:?}", ie);
+                        e
+                    }
+                }
+            },
+            TransactionError::SignatureFailure
+            | TransactionError::InvalidAccountForFee
+            | TransactionError::InsufficientFundsForFee => {Ok(())},
+            _ => {
+                print!("{:?}", te);
+                e
+            }
+        }
+    } else {
+        e
+    }
+}
+
+// pub fn into_transport_error(e: ProgramError) -> TransportError {
+//     TransportError::TransactionError(TransactionError::InstructionError(0,
+//         match e {
+//             ProgramError::Custom(u) => {InstructionError::Custom(u)}
+//             ProgramError::InvalidArgument => {InstructionError::InvalidArgument}
+//             ProgramError::InvalidInstructionData => {InstructionError::InvalidInstructionData}
+//             ProgramError::InvalidAccountData => {InstructionError::InvalidAccountData}
+//             ProgramError::AccountDataTooSmall => {InstructionError::AccountDataTooSmall}
+//             ProgramError::InsufficientFunds => {InstructionError::InsufficientFunds}
+//             ProgramError::IncorrectProgramId => {InstructionError::IncorrectProgramId}
+//             ProgramError::MissingRequiredSignature => {InstructionError::MissingRequiredSignature}
+//             ProgramError::AccountAlreadyInitialized => {InstructionError::AccountAlreadyInitialized}
+//             ProgramError::UninitializedAccount => {InstructionError::UninitializedAccount}
+//             ProgramError::NotEnoughAccountKeys => {InstructionError::NotEnoughAccountKeys}
+//             ProgramError::AccountBorrowFailed => {InstructionError::AccountBorrowFailed}
+//             ProgramError::MaxSeedLengthExceeded => {InstructionError::MaxSeedLengthExceeded}
+//             ProgramError::InvalidSeeds => {InstructionError::InvalidSeeds}
+//         }
+//     ))
+// }
+
+pub fn into_transport_error(e: InstructionError) -> TransportError {
+    TransportError::TransactionError(TransactionError::InstructionError(0, e))
 }

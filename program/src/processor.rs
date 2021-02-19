@@ -223,7 +223,7 @@ impl Processor {
                 "Pool should always hold at least {:?} FIDA tokens",
                 FIDA_MIN_AMOUNT
             );
-            return Err(ProgramError::InvalidArgument);
+            return Err(BonfidaBotError::NotEnoughFIDA.into());
         }
 
         // Mint the first pooltoken to the target
@@ -583,7 +583,10 @@ impl Processor {
             dex_program.key,
             side,
             limit_price,
-            NonZeroU64::new(lots_to_trade).ok_or(BonfidaBotError::Overflow)?,
+            NonZeroU64::new(lots_to_trade).ok_or_else(|| {
+                msg!("Operation too small");
+                BonfidaBotError::OperationTooSmall
+            })?,
             order_type,
             client_id,
             self_trade_behavior,

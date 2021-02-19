@@ -12,6 +12,10 @@ pub enum BonfidaBotError {
     Overflow,
     #[error("Operation is locked in the current pool state")]
     LockedOperation,
+    #[error("Not enough FIDA in account.")]
+    NotEnoughFIDA,
+    #[error("Operation too small.")]
+    OperationTooSmall,
 }
 
 impl From<BonfidaBotError> for ProgramError {

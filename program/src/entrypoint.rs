@@ -31,6 +31,8 @@ impl PrintProgramError for BonfidaBotError {
             BonfidaBotError::InvalidInstruction => msg!("Error: Invalid instruction!"),
             BonfidaBotError::Overflow => msg!("Error: Arithmetic operation overflow!"),
             BonfidaBotError::LockedOperation => msg!("Error: Operation is locked in the current pool state!"),
+            BonfidaBotError::NotEnoughFIDA => msg!("Error: Pool must contain a minimum amount of FIDA tokens"),
+            BonfidaBotError::OperationTooSmall => msg!("Error: Operation was too small")
         }
     }
 }
