@@ -66,6 +66,7 @@ impl Actor {
 }
 
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+#[derive(Debug)]
 pub enum Intention {
     Idle,
     BuyIn(u8),
@@ -112,6 +113,7 @@ pub struct Universe {
     known_accounts: Vec<Pubkey>,
     active_orders: Vec<(u8, Order)>,
     pool: TestPool,
+    pool_token_supply: u64,
     serum_market: Option<SerumMarket>,
     actors: Vec<Actor>,
 }
@@ -178,7 +180,10 @@ impl Execution {
         )
         .unwrap();
         for turn in &self.turns {
-            result_err_filter(universe.consume_turn(ctx, turn).await).unwrap()
+            result_err_filter(universe.consume_turn(ctx, turn).await).unwrap();
+            if universe.pool_token_supply == 0 {
+                break;
+            }
         }
     }
 }
@@ -207,6 +212,7 @@ impl Universe {
             cycle: 0,
             known_accounts,
             pool,
+            pool_token_supply: 0,
             actors: vec![signal_provider],
             active_orders: vec![],
             serum_market: None,
@@ -249,6 +255,8 @@ impl Universe {
                 &self.serum_market.as_ref().unwrap().market_key.pubkey(),
             )
             .await?;
+        self.pool_token_supply = 1_000_000;
+        self.actors[0].pool_token_balance = 1_000_000;
         Ok(())
     }
 
@@ -315,6 +323,7 @@ impl Universe {
                         )
                         .await;
                     if result.is_ok() {
+                        let existing_balance = actor.pool_token_balance;
                         actor.pool_token_balance = Account::unpack(
                             &ctx.test_state
                                 .banks_client
@@ -326,7 +335,8 @@ impl Universe {
                                 .data,
                         )
                         .unwrap()
-                        .amount
+                        .amount;
+                        self.pool_token_supply = self.pool_token_supply + actor.pool_token_balance - existing_balance;
                     }
                     result?
                 }
@@ -345,27 +355,35 @@ impl Universe {
                             .await;
                         if result.is_ok() {
                             actor.pool_token_balance = actor.pool_token_balance - actual_amount;
+                            self.pool_token_supply  = self.pool_token_supply - actual_amount;
                         }
                         result?;
                     }
                 }
                 Intention::BuyOut => {
-                    let result = self
-                        .pool
-                        .redeem(
-                            ctx,
-                            actor.pool_token_balance,
-                            &actor.key,
-                            actor.pool_token_account.as_ref().unwrap(),
-                            &actor.asset_accounts,
-                        )
-                        .await;
-                    if result.is_ok() {
-                        actor.pool_token_balance = 0;
+                    if actor.pool_token_balance != 0 {
+                        let result = self
+                            .pool
+                            .redeem(
+                                ctx,
+                                actor.pool_token_balance,
+                                &actor.key,
+                                actor.pool_token_account.as_ref().unwrap(),
+                                &actor.asset_accounts,
+                            )
+                            .await;
+                        if result.is_ok() {
+                            self.pool_token_supply  = self.pool_token_supply - actor.pool_token_balance;
+                            actor.pool_token_balance = 0;
+                        }
+                        result?;
                     }
-                    result?;
                 }
                 Intention::Attack => {}
+            }
+            if self.pool_token_supply == 0 {
+                println!("Pool is empty and has been deleted");
+                break;
             }
         }
         if self.active_orders.len() != 0 {

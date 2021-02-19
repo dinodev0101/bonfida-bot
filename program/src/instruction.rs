@@ -686,7 +686,7 @@ pub fn redeem(
         AccountMeta::new(*mint_key, false),
         AccountMeta::new_readonly(*source_pool_token_owner_key, true),
         AccountMeta::new(*source_pool_token_key, false),
-        AccountMeta::new_readonly(*pool_key, false),
+        AccountMeta::new(*pool_key, false),
     ];
     for pool_asset_key in pool_asset_keys.iter() {
         accounts.push(AccountMeta::new(*pool_asset_key, false))
