@@ -4,7 +4,7 @@ use std::{
     num::{NonZeroU16, NonZeroU64, NonZeroU8},
 };
 
-use crate::{error::BonfidaBotError, instruction::PoolInstruction, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PUBKEY_LENGTH, PoolAsset, PoolHeader, PoolStatus, pack_asset, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset}, utils::{check_pool_key, check_signal_provider}};
+use crate::{error::BonfidaBotError, instruction::PoolInstruction, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PUBKEY_LENGTH, PoolAsset, PoolHeader, PoolStatus, get_asset_slice, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset}, utils::{check_pool_key, check_signal_provider, fill_slice}};
 use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
@@ -215,7 +215,6 @@ impl Processor {
             )?;
             pool_assets.push(PoolAsset {
                 mint_address: mint_asset_key,
-                amount_in_token: deposit_amounts[i as usize],
             });
         }
 
@@ -342,17 +341,20 @@ impl Processor {
             }
         };
 
+        let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply;
+        let mut pool_asset_amounts = Vec::with_capacity(nb_assets);
         // Compute buy-in amount. The effective buy-in amount can be less than the
         // input_token_amount as the source accounts need to satisfy the pool asset ratios
         let mut pool_token_effective_amount = std::u64::MAX;
         for i in 0..nb_assets {
+            let pool_asset_amount = Account::unpack(&pool_assets_accounts[i].data.borrow())?.amount;
+            pool_asset_amounts.push(pool_asset_amount);
+
             let source_asset_amount =
                 Account::unpack(&source_assets_accounts[i].data.borrow())?.amount;
             pool_token_effective_amount = min(
-                (source_asset_amount as u128)
-                    .checked_mul(1_000_000)
-                    .unwrap()
-                    .checked_div(pool_assets[i].amount_in_token as u128)
+                ((source_asset_amount as u128) * (total_pooltokens as u128))
+                    .checked_div(pool_asset_amount as u128)
                     .unwrap_or(std::u64::MAX.into()) as u64,
                 pool_token_effective_amount,
             );
@@ -369,10 +371,8 @@ impl Processor {
                 return Err(ProgramError::InvalidArgument);
             }
 
-            let amount = pool_token_effective_amount
-                .checked_mul(pool_assets[i].amount_in_token)
-                .ok_or(BonfidaBotError::Overflow)?
-                / 1_000_000;
+            let amount = ((pool_token_effective_amount as u128) * (pool_asset_amounts[i] as u128))
+                / (total_pooltokens as u128);
             if amount == 0 {
                 continue;
             }
@@ -382,7 +382,7 @@ impl Processor {
                 pool_assets_accounts[i].key,
                 source_owner_account.key,
                 &[],
-                amount,
+                amount as u64,
             )?;
             invoke(
                 &instruction,
@@ -481,7 +481,9 @@ impl Processor {
             msg!("A wrong signal provider account was provided.");
             return Err(ProgramError::MissingRequiredSignature);
         }
-        if market.key != &unpack_market(&pool_account.data.borrow()[PoolHeader::LEN..], market_index) {
+        if market.key
+            != &unpack_market(&pool_account.data.borrow()[PoolHeader::LEN..], market_index)
+        {
             msg!("The given market account is not authorized.");
             return Err(ProgramError::MissingRequiredSignature);
         }
@@ -513,7 +515,7 @@ impl Processor {
         pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
 
         let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
-        let mut source_asset =
+        let source_asset =
             unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], source_index)?;
         let mut target_asset =
             unpack_unchecked_asset(&pool_account.data.borrow()[asset_offset..], target_index)?;
@@ -540,33 +542,16 @@ impl Processor {
             }
         } else {
             target_asset.mint_address = target_mint;
-            pack_asset(
+            &target_asset.pack_into_slice(get_asset_slice(
                 &mut pool_account.data.borrow_mut()[asset_offset..],
-                &target_asset,
                 target_index,
-            )?;
+            )?);
         }
 
-        let cast_value: u128 =
-            Account::unpack(&pool_asset_token_account.data.borrow())?.amount as u128;
-        let cast_value_per_pooltoken: u128 = source_asset.amount_in_token as u128;
+        let pool_asset_amount = Account::unpack(&pool_asset_token_account.data.borrow())?.amount;
 
-        let amount_to_trade = (cast_value
-            .checked_mul(
-                max_ratio_of_pool_to_sell_to_another_fellow_trader
-                    .get()
-                    .into(),
-            )
-            .ok_or(BonfidaBotError::Overflow)?
-            >> 16) as u64;
-
-        let amount_to_trade_per_pooltoken = (cast_value_per_pooltoken
-            .checked_mul(
-                max_ratio_of_pool_to_sell_to_another_fellow_trader
-                    .get()
-                    .into(),
-            )
-            .ok_or(BonfidaBotError::Overflow)?
+        let amount_to_trade = (((pool_asset_amount as u128)
+            * (max_ratio_of_pool_to_sell_to_another_fellow_trader.get() as u128))
             >> 16) as u64;
 
         let lots_to_trade = amount_to_trade
@@ -576,14 +561,13 @@ impl Processor {
             })
             .ok_or(BonfidaBotError::Overflow)?;
 
-        source_asset.amount_in_token = source_asset.amount_in_token - amount_to_trade_per_pooltoken;
-
-        pack_asset(
-            &mut pool_account.data.borrow_mut()[asset_offset..],
-            &source_asset,
-            source_index,
-        )?;
-        //TODO uninitiliaze asset if empty
+        if pool_asset_amount == amount_to_trade {
+            // If order empties a pool asset, reset it
+            fill_slice(get_asset_slice(
+                &mut pool_account.data.borrow_mut()[asset_offset..],
+                source_index,
+            )?, 0u8);
+        }
 
         let new_order_instruction = new_order(
             market.key,
@@ -662,8 +646,6 @@ impl Processor {
             msg!("Provided pool mint account is invalid.");
             return Err(ProgramError::InvalidArgument);
         }
-
-        let pool_mint_account = Mint::unpack(&pool_token_mint.data.borrow())?;
 
         if &pool_coin_account_key != pool_coin_wallet.key {
             msg!("Provided pool coin account does not match the pool coin asset");
@@ -780,30 +762,15 @@ impl Processor {
             return Err(BonfidaBotError::Overflow.into());
         }
 
-        let total_coin_assets = pool_coin_account.amount + openorders_free_coin;
-        let total_pc_assets = pool_pc_account.amount + openorders_free_pc;
-
-        pool_coin_asset.amount_in_token = ((total_coin_assets as u128) * 1_000_000)
-            .checked_div(pool_mint_account.supply as u128)
-            .ok_or(BonfidaBotError::Overflow)?
-            .try_into()
-            .map_err(|_| BonfidaBotError::Overflow)?;
-        pool_pc_asset.amount_in_token = ((total_pc_assets as u128) * 1_000_000)
-            .checked_div(pool_mint_account.supply as u128)
-            .ok_or(BonfidaBotError::Overflow)?
-            .try_into()
-            .map_err(|_| BonfidaBotError::Overflow)?;
-
-        pack_asset(
+        &pool_coin_asset.pack_into_slice( get_asset_slice(
             &mut pool_account.data.borrow_mut()[asset_offset..],
-            &pool_coin_asset,
             coin_index,
-        )?;
-        pack_asset(
+        )?);
+        &pool_pc_asset.pack_into_slice( get_asset_slice(
             &mut pool_account.data.borrow_mut()[asset_offset..],
-            &pool_pc_asset,
             pc_index,
-        )?;
+        )?);
+
         let instruction = settle_funds(
             dex_program.key,
             market.key,
@@ -941,6 +908,8 @@ impl Processor {
             _ => (),
         };
 
+        let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply;
+
         // Execute buy out
         for i in 0..nb_assets {
             let pool_asset_key =
@@ -951,12 +920,13 @@ impl Processor {
                 return Err(ProgramError::InvalidArgument);
             }
 
-            let amount: u64 = ((pool_token_amount as u128)
-                .checked_mul(pool_assets[i].amount_in_token as u128)
-                .ok_or(BonfidaBotError::Overflow)?
-                / 1_000_000)
+            let pool_asset_amount = Account::unpack(&pool_assets_accounts[i].data.borrow())?.amount;
+
+            let amount: u64 = (((pool_token_amount as u128) * (pool_asset_amount as u128))
+                / (total_pooltokens as u128))
                 .try_into()
                 .map_err(|_| BonfidaBotError::Overflow)?;
+
             if amount == 0 {
                 continue;
             }
@@ -1000,6 +970,11 @@ impl Processor {
             ],
         )?;
 
+        if pool_token_amount == total_pooltokens {
+            // Reset the pool data
+            fill_slice(&mut pool_account.data.borrow_mut(), 0u8);
+        }
+
         Ok(())
     }
 
@@ -1031,7 +1006,7 @@ impl Processor {
                 serum_program_id,
                 signal_provider_key,
                 deposit_amounts,
-                markets
+                markets,
             } => {
                 msg!("Instruction: Create Pool");
                 Self::process_create(
@@ -1041,7 +1016,7 @@ impl Processor {
                     &serum_program_id,
                     &signal_provider_key,
                     deposit_amounts,
-                    markets
+                    markets,
                 )
             }
             PoolInstruction::Deposit {

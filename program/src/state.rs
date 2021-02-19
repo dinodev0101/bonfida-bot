@@ -10,10 +10,11 @@ pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 pub const PUBKEY_LENGTH: usize = 32;
 
+// Pool state is composed of PoolHeader, Array of markets (pubkeys) and array of poolassets
+
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
-    pub amount_in_token: u64,
 }
 #[derive(Debug, PartialEq)]
 pub enum PoolStatus {
@@ -140,21 +141,17 @@ impl IsInitialized for PoolAsset {
 }
 
 impl Pack for PoolAsset {
-    const LEN: usize = 40;
+    const LEN: usize = 32;
 
     fn pack_into_slice(&self, target: &mut [u8]) {
         let mint_address_bytes = self.mint_address.to_bytes();
-        let amount_bytes = self.amount_in_token.to_le_bytes();
         target[0..32].copy_from_slice(&mint_address_bytes);
-        target[32..40].copy_from_slice(&amount_bytes);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let mint_address = Pubkey::new(&src[..32]);
-        let amount_in_token = u64::from_le_bytes(src[32..40].try_into().unwrap());
         Ok(Self {
             mint_address,
-            amount_in_token,
         })
     }
 }
@@ -180,13 +177,10 @@ pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, P
         .and_then(|slice| PoolAsset::unpack_unchecked(slice))
 }
 
-pub fn pack_asset(target: &mut [u8], asset: &PoolAsset, index: usize) -> Result<(), ProgramError> {
+pub fn get_asset_slice(target: &mut [u8], index: usize) -> Result<&mut [u8], ProgramError> {
     let offset = index * PoolAsset::LEN;
-    let slice = target
-        .get_mut(offset..offset + PoolAsset::LEN)
-        .ok_or(ProgramError::InvalidArgument)?;
-    asset.pack_into_slice(slice);
-    Ok(())
+    target.get_mut(offset..offset + PoolAsset::LEN)
+        .ok_or(ProgramError::InvalidArgument)
 }
 
 pub fn unpack_market(input: &[u8], market_index: u16) -> Pubkey {
@@ -226,11 +220,9 @@ mod tests {
 
         let pool_asset = PoolAsset {
             mint_address: Pubkey::new_unique(),
-            amount_in_token: 99,
         };
         let pool_asset_2 = PoolAsset {
             mint_address: Pubkey::new_unique(),
-            amount_in_token: 499,
         };
         pool_asset.pack_into_slice(&mut state_array[header_size..]);
         pool_asset_2.pack_into_slice(&mut state_array[header_size + PoolAsset::LEN..]);

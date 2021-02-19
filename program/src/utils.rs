@@ -33,3 +33,9 @@ pub fn check_signal_provider(
     }
     Ok(())
 }
+
+pub fn fill_slice(target: &mut [u8], val: u8) {
+    for i in 0..target.len() {
+        target[i] = val;
+    }
+}
