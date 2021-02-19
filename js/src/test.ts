@@ -36,7 +36,7 @@ import {
   import bs58 from 'bs58';
   import * as crypto from "crypto";
   import { Order } from '@project-serum/serum/lib/market';
-  import { settleFunds } from './main';
+  import { cancelOrder, createOrder, createPool, deposit, redeem, settleFunds } from './main';
 
 
 const test = async (): Promise<void> => {
@@ -69,6 +69,13 @@ const test = async (): Promise<void> => {
     const USDC_VAULT_KEY: PublicKey = new PublicKey(
       "4XzLuVzzSbYYq1ZJvoWaUWm5kAHZNEuaxqLKNPoYUHPi",
     );
+
+    // This rounds info:
+    // Poolkey:
+    // PoolSeed
+    // Mint Key:
+    // Openorder key:
+    // Market key:
   
     // Accounts to use for test
     const sourceOwnerAccount = new Account([209,138,118,246,5,217,67,204,37,161,220,18,155,172,128,23,242,70,137,170,6,59,58,212,25,44,166,224,141,41,91,65,8,38,24,142,233,90,158,76,163,107,196,192,78,223,10,102,45,91,195,145,5,138,109,51,78,187,243,50,190,254,210,179]);
@@ -80,116 +87,108 @@ const test = async (): Promise<void> => {
     const signalProviderAccount = sourceOwnerAccount;
     const payerAccount = sourceOwnerAccount;
   
-    // // Create Pool
-    // let [poolSeed, createInstructions] = await createPool(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   sourceOwnerAccount,
-    //   sourceAssetKeys,
-    //   signalProviderAccount.publicKey,
-    //   [2000000, 1000000],
-    //   10,
-    //   payerAccount
-    // );
-    let poolSeed = bs58.decode("G8FLCMgTTXddXK9BFEdYgaMwrgpaiq9ERCVjiiVeGDVF");
-    // Pool key: DT5fWFuW3E2c5fidnxnEjdqA7NADSJoyDdarGApSA921
-    // pool mint key: E54UeTspSvfBWjiFeSb9sPNMwMULcRR3GBuMdWXtUiaD
-  
-    // Deposit into Pool
-    // let depositTxInstructions = await deposit(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   sourceOwnerAccount,
-    //   sourceAssetKeys,
-    //   // @ts-ignore
-    //   new Numberu64(1000000),
-    //   [poolSeed],
-    //   payerAccount
-    // );
-  
-    // Create a FIDA to USDC order
+    // Get FIDA to USDC market
     let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("FIDA/USDC")];
-    if (marketInfo.deprecated) {throw "Create order market is deprecated"};
+    if (marketInfo.deprecated) {throw "Chosen Market is deprecated"};
     let marketData = await getMarketData(connection, marketInfo.address);
 
-    // let [openOrderAccount, createOrderTxInstructions] = await createOrder(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
-    //   poolSeed,
-    //   marketInfo.address,
-    //   OrderSide.Ask,
-    //   // @ts-ignore
-    //   new Numberu64(10000),
-    //   // @ts-ignore
-    //   new Numberu16(1<<15),
-    //   OrderType.Limit,
-    //   // @ts-ignore
-    //   new Numberu64(0),
-    //   SelfTradeBehavior.DecrementTake,
-    //   null, // Self referring
-    //   payerAccount.publicKey
-    // );
-    // await signAndSendTransactionInstructions(
-    //   connection,
-    //   [sourceOwnerAccount, openOrderAccount, signalProviderAccount],
-    //   payerAccount,
-    //   depositTxInstructions.concat(createOrderTxInstructions)
-    // );
+    // Create Pool
+    let [poolSeed, createInstructions] = await createPool(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      sourceOwnerAccount,
+      sourceAssetKeys,
+      signalProviderAccount.publicKey,
+      [2000000, 1000000],
+      10,
+      // @ts-ignore
+      new Numberu16(1),
+      [marketInfo.address],
+      payerAccount
+    );
   
-    let openOrder = new PublicKey("4rHBgrYgiN9ibuFghzBheMJRtYrP2zcGZTrGNt8SM1cw");
-    // Order tracker key: 56RogJQ38e22Rk9GB94EqDQHFJ5XSFmUkKW3u77Wwou8
-    let openOrders = await OpenOrders.load(connection, openOrder, SERUM_PROGRAM_ID); //openOrderAccount.publicKey
+    let secPoolSeed = bs58.decode(""); //TODO
+
+    // Deposit into Pool
+    let depositTxInstructions = await deposit(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      sourceOwnerAccount,
+      sourceAssetKeys,
+      // @ts-ignore
+      new Numberu64(1000000),
+      [secPoolSeed],
+      payerAccount
+    );
+  
+
+    let [openOrderAccount, createOrderTxInstructions] = await createOrder(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      secPoolSeed,
+      marketInfo.address,
+      OrderSide.Ask,
+      // @ts-ignore
+      new Numberu64(10000),
+      // @ts-ignore
+      new Numberu16(1<<15),
+      OrderType.Limit,
+      // @ts-ignore
+      new Numberu64(0),
+      SelfTradeBehavior.DecrementTake,
+      null, // Self referring
+      payerAccount.publicKey
+    );
+  
+    let openOrder = new PublicKey(""); //TODO
+    let openOrders = await OpenOrders.load(connection, openOrder, SERUM_PROGRAM_ID);
     let orders = (openOrders).orders;
     // console.log("orders", orders)
     let orderId = orders[-1];
     // if (orderId == new Numberu128(0)) {
     //    throw "No orders found in Openorder account."
     // }
-    // let cancelOrderTxInstruction = await cancelOrder(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
-    //   poolSeed,
-    //   marketInfo.address,
-    //   openOrder,
-    //   orderId
-    // );
+    let cancelOrderTxInstruction = await cancelOrder(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      secPoolSeed,
+      marketInfo.address,
+      openOrder,
+      orderId
+    );
     let settleFundsTxInstructions = await settleFunds(
         connection,
         BONFIDABOT_PROGRAM_ID,
         SERUM_PROGRAM_ID,
-        poolSeed,
+        secPoolSeed,
         marketInfo.address,
         openOrder,
         payerAccount.publicKey
     );
+    
+    let sourcePoolTokenKey = new PublicKey(""); //TODO
+    let redeemTxInstruction = await redeem(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      sourceOwnerAccount.publicKey,
+      sourcePoolTokenKey,
+      sourceAssetKeys,
+      [secPoolSeed],
+      // @ts-ignore
+      new Numberu64(1000000)
+    );
+
+
+
     await signAndSendTransactionInstructions(
       connection,
-      [signalProviderAccount],
+      [],
       payerAccount,
-      settleFundsTxInstructions
+      createInstructions
     );
-  
-  
-  
-    // let sourcePoolTokenKey = new PublicKey("77FK8kfFzaRz3e7fLe8Fy7GJNnGUXRJstMmnLhHdCqPt");
-    // let redeemTxInstruction = await redeem(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   sourceOwnerAccount.publicKey,
-    //   sourcePoolTokenKey,
-    //   sourceAssetKeys,
-    //   [poolSeed],
-    //   // @ts-ignore
-    //   new Numberu64(1000000)
-    // );
-    // await signAndSendTransactionInstructions(
-    //   connection,
-    //   [sourceOwnerAccount],
-    //   payerAccount,
-    //   redeemTxInstruction
-    // );
     
   
     // Add an instruction that will result in an error for testing

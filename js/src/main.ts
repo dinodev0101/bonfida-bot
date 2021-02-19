@@ -236,6 +236,7 @@ export async function createOrder(
     sourceMintKey = marketData.pcMintKey;
     targetMintKey = marketData.coinMintKey;
   }
+  console.log('Market key: ', marketData.address);
 
   let authorizedMarkets = unpack_markets(poolInfo.data.slice(
     PoolHeader.LEN, PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH
@@ -262,15 +263,17 @@ export async function createOrder(
   // Create the open order account with trhe serum specific size of 3228 bits
   let rent = await connection.getMinimumBalanceForRentExemption(3228);
   let openOrderAccount = new Account();
-  let openOrdersKey = openOrderAccount.publicKey;
+  let openOrderKey = openOrderAccount.publicKey;
   let createAccountParams: CreateAccountParams = {
     fromPubkey: payerKey,
-    newAccountPubkey: openOrdersKey,
+    newAccountPubkey: openOrderKey,
     lamports: rent,
     space: 3228, //TODO get rid of the magic numbers
     programId: serumProgramId
   };
-  let createOpenOrderAccountInstruction = SystemProgram.createAccount(createAccountParams)
+  let createOpenOrderAccountInstruction = SystemProgram.createAccount(createAccountParams);
+  console.log('Open Order key: ', openOrderKey);
+
 
   let createOrderTxInstruction = createOrderInstruction(
     bonfidaBotProgramId,
@@ -279,7 +282,7 @@ export async function createOrder(
     sourcePoolAssetKey,
     sourcePoolAssetIndex,
     targetPoolAssetIndex,
-    openOrdersKey,
+    openOrderKey,
     marketData.reqQueueKey,
     poolKey,
     marketData.coinVaultKey,
