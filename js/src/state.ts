@@ -86,27 +86,23 @@ export class PoolHeader {
 }
 
 export class PoolAsset {
-  static LEN = 40;
+  static LEN = 33;
   // Release time in unix timestamp
   mintAddress!: PublicKey;
-  amountInToken!: Numberu64;
 
-  constructor(mintAddress: PublicKey, amountInToken: Numberu64) {
+  constructor(mintAddress: PublicKey) {
     this.mintAddress = mintAddress;
-    this.amountInToken = amountInToken;
   }
 
   public toBuffer(): Buffer {
     return Buffer.concat([
       this.mintAddress.toBuffer(),
-      this.amountInToken.toBuffer(),
     ]);
   }
 
   static fromBuffer(buf: Buffer): PoolAsset {
     const mintAddress: PublicKey = new PublicKey(buf.slice(0, 32));
-    const amountInToken: Numberu64 = Numberu64.fromBuffer(buf.slice(32, 40));
-    return new PoolAsset(mintAddress, amountInToken);
+    return new PoolAsset(mintAddress);
   }
 }
 

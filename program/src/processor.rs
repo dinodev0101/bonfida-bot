@@ -765,6 +765,8 @@ impl Processor {
             return Err(BonfidaBotError::Overflow.into());
         }
 
+        //TODO fees
+        
         &pool_coin_asset.pack_into_slice( get_asset_slice(
             &mut pool_account.data.borrow_mut()[asset_offset..],
             coin_index,
