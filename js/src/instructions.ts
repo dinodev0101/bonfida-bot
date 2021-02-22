@@ -539,7 +539,7 @@ export function redeemInstruction(
     {
       pubkey: poolKey,
       isSigner: false,
-      isWritable: false,
+      isWritable: true,
     },
   ];
   for (var poolAsset of poolAssetKeys) {
