@@ -80,14 +80,13 @@ export class PoolHeader {
     const signalProvider: PublicKey = new PublicKey(buf.slice(32, 64));
     const status: PoolStatus = PoolHeader.match_status(buf.slice(64, 65));
     // @ts-ignore
-    const numberOfMarkets: Numberu16 = new Numberu16(buf.slice(65, 67));
+    const numberOfMarkets = Numberu16.fromBuffer(buf.slice(65, 67));
     return new PoolHeader(serumProgramId, signalProvider, status, numberOfMarkets);
   }
 }
 
 export class PoolAsset {
-  static LEN = 33;
-  // Release time in unix timestamp
+  static LEN = 32;
   mintAddress!: PublicKey;
 
   constructor(mintAddress: PublicKey) {
@@ -114,7 +113,7 @@ export function unpack_assets(input: Buffer): Array<PoolAsset> {
   zeroArray.fill(0);
   for (let i=0; i<numberOfAssets; i++) {
     let asset = PoolAsset.fromBuffer(input.slice(offset, offset + PoolAsset.LEN));
-    if (asset.mintAddress != new PublicKey(Buffer.from(zeroArray))) {
+    if (asset.mintAddress.toString() != (new PublicKey(Buffer.from(zeroArray))).toString()) {
       output.push(asset);
     }
     offset += PoolAsset.LEN;

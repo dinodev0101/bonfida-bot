@@ -25,8 +25,7 @@ export function initInstruction(
     Buffer.concat(poolSeed),
     // @ts-ignore
     new Numberu32(maxNumberOfAssets).toBuffer(),
-    // @ts-ignore
-    new Numberu16(number_of_markets).toBuffer(),
+    number_of_markets.toBuffer(),
   ];
 
   const data = Buffer.concat(buffers);
@@ -90,14 +89,16 @@ export function createInstruction(
     Buffer.concat(poolSeed),
     serumProgramId.toBuffer(),
     signalProviderKey.toBuffer(),
-  ];
-  for (var amount of depositAmounts) {
     // @ts-ignore
-    buffers.push(new Numberu64(amount).toBuffer())
-  }
+    (new Numberu16(markets.length)).toBuffer()
+  ];
   for (var market of markets) {
     // @ts-ignore
     buffers.push(market.toBuffer())
+  }
+  for (var amount of depositAmounts) {
+    // @ts-ignore
+    buffers.push(new Numberu64(amount).toBuffer())
   }
 
   const data = Buffer.concat(buffers);

@@ -32,14 +32,20 @@ export async function findAssociatedTokenAddress(
   )[0];
 }
 
+export type PoolInfo = {
+  address: PublicKey,
+  mintKey: PublicKey,
+  seed: Uint8Array
+}
+
 export type MarketData = {
   address: PublicKey,
   coinMintKey: PublicKey,
   coinVaultKey: PublicKey,
-  coinLotSize: PublicKey,
+  coinLotSize: Numberu64,
   pcMintKey: PublicKey,
   pcVaultKey: PublicKey,
-  pcLotSize: PublicKey,
+  pcLotSize: Numberu64,
   vaultSignerNonce: Numberu64,
   reqQueueKey: PublicKey,
 }
@@ -53,11 +59,11 @@ export async function getMarketData(connection:Connection, marketKey: PublicKey)
     adress: marketKey,
     coinMintKey: new PublicKey(marketAccountInfo.data.slice(53, 85)),
     coinVaultKey: new PublicKey(marketAccountInfo.data.slice(117, 149)),
-    coinLotSize: new PublicKey(marketAccountInfo.data.slice(349, 357)),
+    coinLotSize: new Numberu64(marketAccountInfo.data.slice(349, 357).reverse()),
     pcMintKey: new PublicKey(marketAccountInfo.data.slice(85, 117)),
     pcVaultKey: new PublicKey(marketAccountInfo.data.slice(165, 197)),
-    pcLotSize: new PublicKey(marketAccountInfo.data.slice(357, 365)),
-    vaultSignerNonce: new PublicKey(marketAccountInfo.data.slice(45, 53)),
+    pcLotSize: new Numberu64(marketAccountInfo.data.slice(357, 365).reverse()),
+    vaultSignerNonce: new Numberu64(marketAccountInfo.data.slice(45, 53).reverse()),
     reqQueueKey: new PublicKey(marketAccountInfo.data.slice(221, 253)),
   }
   return marketData;
@@ -165,12 +171,12 @@ export class Numberu128 extends BN {
   toBuffer(): Buffer {
     const a = super.toArray().reverse();
     const b = Buffer.from(a);
-    if (b.length === 128) {
+    if (b.length === 16) {
       return b;
     }
     assert(b.length < 16, 'Numberu64 too large');
 
-    const zeroPad = Buffer.alloc(128);
+    const zeroPad = Buffer.alloc(16, 0);
     b.copy(zeroPad);
     return zeroPad;
   }
@@ -179,7 +185,7 @@ export class Numberu128 extends BN {
    * Construct a Numberu64 from Buffer representation
    */
   static fromBuffer(buffer): any {
-    assert(buffer.length === 128, `Invalid buffer length: ${buffer.length}`);
+    assert(buffer.length === 16, `Invalid buffer length: ${buffer.length}`);
     return new BN(
       [...buffer]
         .reverse()
