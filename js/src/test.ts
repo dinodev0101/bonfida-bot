@@ -30,6 +30,7 @@ import {
     Numberu16,
     getMarketData,
     Numberu128,
+    sleep,
   } from './utils';
   import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
   import { assert } from 'console';
@@ -86,108 +87,142 @@ const test = async (): Promise<void> => {
     if (marketInfo.deprecated) {throw "Chosen Market is deprecated"};
     let marketData = await getMarketData(connection, marketInfo.address);
 
-    // Create Pool
-    let [poolInfo, createInstructions] = await createPool(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      SERUM_PROGRAM_ID,
-      sourceOwnerAccount,
-      sourceAssetKeys,
-      signalProviderAccount.publicKey,
-      [2000000, 1000000],
-      10,
-      // @ts-ignore
-      new Numberu16(1),
-      [marketInfo.address],
-      payerAccount
-    );
+    // // Create Pool
+    // let [poolInfo, createInstructions] = await createPool(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   SERUM_PROGRAM_ID,
+    //   sourceOwnerAccount,
+    //   sourceAssetKeys,
+    //   signalProviderAccount.publicKey,
+    //   [2000000, 1000000],
+    //   10,
+    //   // @ts-ignore
+    //   new Numberu16(1),
+    //   [marketInfo.address],
+    //   payerAccount
+    // );
+
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [sourceOwnerAccount],
+    //   payerAccount,
+    //   createInstructions
+    // );
+    // console.log("Created Pool")
+    // await sleep(5 * 1000);
+
+    // // Deposit into Pool
+    // let depositTxInstructions = await deposit(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   sourceOwnerAccount.publicKey,
+    //   sourceAssetKeys,
+    //   // @ts-ignore
+    //   new Numberu64(1000000),
+    //   [poolInfo.seed],
+    //   payerAccount
+    // );
+
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [sourceOwnerAccount],
+    //   payerAccount,
+    //   depositTxInstructions
+    // );
+    // console.log("Deposited into Pool")
+    // await sleep(5 * 1000);
   
-    // Deposit into Pool
-    let depositTxInstructions = await deposit(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      sourceOwnerAccount.publicKey,
-      sourceAssetKeys,
-      // @ts-ignore
-      new Numberu64(1000000),
-      [poolInfo.seed],
-      payerAccount
-    );
+    // let [openOrderAccount, createPoolTxInstructions] = await createOrder(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   SERUM_PROGRAM_ID,
+    //   poolInfo.seed,
+    //   marketInfo.address,
+    //   OrderSide.Ask,
+    //   // @ts-ignore
+    //   new Numberu64(1<<63),
+    //   // @ts-ignore
+    //   new Numberu16(1<<15),
+    //   OrderType.Limit,
+    //   // @ts-ignore
+    //   new Numberu64(0),
+    //   SelfTradeBehavior.DecrementTake,
+    //   null, // Self referring
+    //   payerAccount.publicKey
+    // );
+
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [signalProviderAccount],
+    //   payerAccount,
+    //   createPoolTxInstructions
+    // );
+    // console.log("Created Order for Pool")
+    // await sleep(5 * 1000);
   
-    let [openOrderAccount, createPoolTxInstructions] = await createOrder(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      SERUM_PROGRAM_ID,
-      poolInfo.seed,
-      marketInfo.address,
-      OrderSide.Ask,
-      // @ts-ignore
-      new Numberu64(1<<63),
-      // @ts-ignore
-      new Numberu16(1<<15),
-      OrderType.Limit,
-      // @ts-ignore
-      new Numberu64(0),
-      SelfTradeBehavior.DecrementTake,
-      null, // Self referring
-      payerAccount.publicKey
-    );
+    // let cancelOrderTxInstruction = await cancelOrder(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   SERUM_PROGRAM_ID,
+    //   poolInfo.seed,
+    //   marketInfo.address,
+    //   openOrderAccount.publicKey
+    // );
 
-    let firstInstructions = createInstructions
-      .concat(depositTxInstructions)
-      .concat(createPoolTxInstructions)
-    await signAndSendTransactionInstructions(
-      connection,
-      [sourceOwnerAccount, signalProviderAccount],
-      payerAccount,
-      firstInstructions
-    );
-  
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [signalProviderAccount],
+    //   payerAccount,
+    //   cancelOrderTxInstruction
+    // );
+    // console.log("Cancelled Order")
+    // await sleep(5 * 1000);
 
-    let cancelOrderTxInstruction = await cancelOrder(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      SERUM_PROGRAM_ID,
-      poolInfo.seed,
-      marketInfo.address,
-      openOrderAccount.publicKey
-    );
+    // let sourcePoolTokenKey = await findAssociatedTokenAddress(
+    //   poolInfo.address,
+    //   poolInfo.mintKey
+    // );
 
-    let sourcePoolTokenKey = await findAssociatedTokenAddress(
-      poolInfo.address,
-      poolInfo.mintKey
-    );
+    // let settleFundsTxInstructions = await settleFunds(
+    //     connection,
+    //     BONFIDABOT_PROGRAM_ID,
+    //     SERUM_PROGRAM_ID,
+    //     poolInfo.seed,
+    //     marketInfo.address,
+    //     openOrderAccount.publicKey,
+    //     null
+    // );
 
-    let settleFundsTxInstructions = await settleFunds(
-        connection,
-        BONFIDABOT_PROGRAM_ID,
-        SERUM_PROGRAM_ID,
-        poolInfo.seed,
-        marketInfo.address,
-        openOrderAccount.publicKey,
-        null
-    );
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [],
+    //   payerAccount,
+    //   settleFundsTxInstructions
+    // );
+    // console.log("Settled Funds")
+    // await sleep(5 * 1000);
     
-    let redeemTxInstruction = await redeem(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      sourceOwnerAccount.publicKey,
-      sourcePoolTokenKey,
-      sourceAssetKeys,
-      [poolInfo.seed],
-      // @ts-ignore
-      new Numberu64(1000000)
-    );
 
-    let secondInstructions = cancelOrderTxInstruction
-      .concat(settleFundsTxInstructions)
-      .concat(redeemTxInstruction)
-    await signAndSendTransactionInstructions(
-      connection,
-      [signalProviderAccount, sourceOwnerAccount],
-      payerAccount,
-      firstInstructions
-    );
+    // let redeemTxInstruction = await redeem(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   sourceOwnerAccount.publicKey,
+    //   sourcePoolTokenKey,
+    //   sourceAssetKeys,
+    //   [poolInfo.seed],
+    //   // @ts-ignore
+    //   new Numberu64(1000000)
+    // );
+    
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [sourceOwnerAccount],
+    //   payerAccount,
+    //   redeemTxInstruction
+    // );
+    // console.log("Redeemed out of Pool")
+    // await sleep(5 * 1000);
       
     let fetchedSeeds = await getPoolsSeedsBySigProvider(
       connection,

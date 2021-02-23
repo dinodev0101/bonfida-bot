@@ -74,6 +74,9 @@ export async function getPoolsSeedsBySigProvider(
   let poolSeeds: Buffer[] = [];
   for (var account of resp.result) {
     let data = Buffer.from(account["account"]["data"][0], 'base64');
+    if (data.length < PoolHeader.LEN) {
+      continue;
+    }
     if ((new PublicKey(data.slice(64, 96))).equals(signalProviderKey)) {
       poolSeeds.push(data.slice(32, 64));
     }
