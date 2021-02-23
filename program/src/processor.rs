@@ -250,6 +250,7 @@ impl Processor {
         // Write state header into data
         let state_header = PoolHeader {
             serum_program_id: *serum_program_id,
+            seed: pool_seed,
             signal_provider: *signal_provider_key,
             status: PoolStatus::Unlocked,
             number_of_markets: markets.len() as u16,
@@ -537,7 +538,7 @@ impl Processor {
 
         if target_asset.is_initialized() {
             if target_asset.mint_address != target_mint {
-                msg!("Target asset does not match bid currency");
+                msg!("Target asset mint does not match given target mint");
                 return Err(ProgramError::InvalidArgument);
             }
         } else {

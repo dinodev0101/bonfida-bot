@@ -29,6 +29,7 @@ pub enum PoolStatus {
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
     pub serum_program_id: Pubkey,
+    pub seed: [u8; 32],
     pub signal_provider: Pubkey,
     pub status: PoolStatus,
     pub number_of_markets: u16, 
@@ -42,14 +43,15 @@ const STATUS_UNLOCKED_FLAG: u8 = STATUS_PENDING_ORDER_MASK;
 impl Sealed for PoolHeader {}
 
 impl Pack for PoolHeader {
-    const LEN: usize = 67;
+    const LEN: usize = 99;
 
     fn pack_into_slice(&self, target: &mut [u8]) {
         let serum_program_id_bytes = self.serum_program_id.to_bytes();
         target[0..32].copy_from_slice(&serum_program_id_bytes);
+        target[32..64].copy_from_slice(&self.seed);
         let signal_provider_bytes = self.signal_provider.to_bytes();
-        target[32..64].copy_from_slice(&signal_provider_bytes);
-        target[64] = match self.status {
+        target[64..96].copy_from_slice(&signal_provider_bytes);
+        target[96] = match self.status {
             PoolStatus::Uninitialized => 0,
             PoolStatus::Unlocked => STATUS_UNLOCKED_FLAG,
             PoolStatus::Locked => STATUS_LOCKED_FLAG,
@@ -63,32 +65,34 @@ impl Pack for PoolHeader {
             }
         };
         let number_of_markets_bytes = self.number_of_markets.to_le_bytes();
-        target[65..67].copy_from_slice(&number_of_markets_bytes);
+        target[97..99].copy_from_slice(&number_of_markets_bytes);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let serum_program_id = Pubkey::new(&src[..32]);
-        let signal_provider = Pubkey::new(&src[32..64]);
-        let status = if src[64] == 0 {
+        let seed: [u8; 32] = src[32..64].try_into().unwrap();
+        let signal_provider = Pubkey::new(&src[64..96]);
+        let status = if src[96] == 0 {
             PoolStatus::Uninitialized
         } else {
-            match src[64] >> 6 {
+            match src[96] >> 6 {
                 0 => PoolStatus::Unlocked,
                 1 => PoolStatus::PendingOrder(
-                    NonZeroU8::new((src[64] & STATUS_PENDING_ORDER_MASK) + 1)
+                    NonZeroU8::new((src[96] & STATUS_PENDING_ORDER_MASK) + 1)
                         .ok_or(ProgramError::InvalidArgument)?,
                 ),
                 2 => PoolStatus::Locked,
                 3 => PoolStatus::LockedPendingOrder(
-                    NonZeroU8::new((src[64] & STATUS_PENDING_ORDER_MASK) + 1)
+                    NonZeroU8::new((src[96] & STATUS_PENDING_ORDER_MASK) + 1)
                         .ok_or(ProgramError::InvalidArgument)?,
                 ),
                 _ => return Err(ProgramError::InvalidAccountData),
             }
         };
-        let number_of_markets = u16::from_le_bytes(src[65..].try_into().unwrap());
+        let number_of_markets = u16::from_le_bytes(src[97..].try_into().unwrap());
         Ok(Self {
             serum_program_id,
+            seed,
             signal_provider,
             status,
             number_of_markets
@@ -209,6 +213,7 @@ mod tests {
     fn test_state_packing() {
         let header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
             number_of_markets: 234
@@ -239,6 +244,7 @@ mod tests {
     fn test_header_packing() {
         let mut header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
             number_of_markets: 234
@@ -250,6 +256,7 @@ mod tests {
 
         header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap()),
             number_of_markets: 234
@@ -261,6 +268,7 @@ mod tests {
 
         header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Locked,
             number_of_markets: 234
@@ -272,6 +280,7 @@ mod tests {
 
         header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Unlocked,
             number_of_markets: 234
@@ -283,6 +292,7 @@ mod tests {
 
         header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Uninitialized,
             number_of_markets: 234
