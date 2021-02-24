@@ -76,12 +76,12 @@ export async function fetchPoolInfo(
   return poolInfo
 }
 
+// Fetch the balances of the poolToken and the assets (in the same order as in the poolData)
 export async function fetchPoolBalances(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
   poolSeed: Buffer | Uint8Array,
 ): Promise<[TokenAmount, Array<TokenAmount>]> {
-  // Fetch the balances of the poolToken and the assets (in the same order as in the poolData)
 
   let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
   let array_one = new Uint8Array(1);
@@ -115,9 +115,9 @@ export async function fetchPoolBalances(
   return [poolTokenSupply, assetBalances]
 }
 
+// This method lets the user deposit an arbitrary token into the pool
+// by intermediately trading with serum in order to reach the pool asset ratio
 // export async function singleTokenDeposit(
-//   // This method let's the user deposit an arbitrary token into the pool
-//   // by intermediately trading with serum in order to reach the pool asset ratio
 //   connection: Connection,
 //   bonfidaBotProgramId: PublicKey,
 //   sourceOwnerKey: Account,
@@ -149,13 +149,13 @@ export async function fetchPoolBalances(
 //   let marketData = await getMarketData(connection, market);
 // }
 
+// Get the seeds of the pools managed by the given signal provider
+// Gets all poolseeds if no signal provider was given
 export async function getPoolsSeedsBySigProvider(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
   signalProviderKey: PublicKey | undefined,
 ): Promise<Buffer[]> {
-  // Get the seeds of the pools managed by the given signal provider
-  // Gets all poolseeds if no signal provider was given
 
   const filter = []
   // @ts-ignore

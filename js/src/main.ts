@@ -33,7 +33,7 @@ import { open } from 'fs/promises';
 import { OpenOrders } from '@project-serum/serum';
 
 
-//----------------------
+/////////////////////////////////
 
 export const ENDPOINTS = {
   mainnet: 'https://solana-api.projectserum.com',
@@ -41,7 +41,7 @@ export const ENDPOINTS = {
 };
 
 export const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
-  "GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB", //'4n5939p99bGJRCVPtf2kffKftHRjw6xRXQPcozsVDC77', old GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB new
+  "GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB",
 );
 
 export const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
@@ -52,12 +52,11 @@ export const FIDA_KEY: PublicKey = new PublicKey(
   "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp",
 );
 
-export const PUBLIC_POOLS = [
-  new PublicKey("39NRjVjSFousasbuh974ehBQFDxmPnXbgUQSLUhjMaJr"),
-  new PublicKey("EFnuNJ4qgD22c6Rqpv3DEzmDWYCcg1Me98J313kvthbc")
+export const PUBLIC_POOLS_SEEDS = [
+  new PublicKey("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa"),
 ];
 
-//----------------------
+/////////////////////////////////
 
 
 export async function createPool(

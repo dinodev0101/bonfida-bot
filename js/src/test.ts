@@ -32,12 +32,12 @@ import {
   Numberu128,
   sleep,
 } from './utils';
-import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
+import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, PoolStatusID, SelfTradeBehavior, unpack_assets } from './state';
 import { assert } from 'console';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
 import { Order } from '@project-serum/serum/lib/market';
-import { BONFIDABOT_PROGRAM_ID, cancelOrder, createOrder, createPool, deposit, ENDPOINTS, redeem, settleFunds } from './main';
+import { BONFIDABOT_PROGRAM_ID, cancelOrder, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
 import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider } from './secondary_bindings';
 
 
@@ -97,9 +97,7 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
     // // Needs to sleep longer than this ?
 
-    let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
-
-    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
     // // Deposit into Pool
     // let depositTxInstructions = await deposit(
@@ -149,8 +147,6 @@ const test = async (): Promise<void> => {
     // );
     // console.log("Created Order for Pool")
     // await sleep(5 * 1000);
-
-    let openOrderKey = new PublicKey("uhVXbJezVnyx1iuw8zuHHVBfWUFCxkaG1jMyDdGvDED");
   
     // let cancelOrderTxInstruction = await cancelOrder(
     //   connection,
@@ -158,7 +154,7 @@ const test = async (): Promise<void> => {
     //   SERUM_PROGRAM_ID,
     //   poolInfo.seed,
     //   marketInfo.address,
-    //   openOrderKey
+    //   openOrderAccount.publicKey
     // );
 
     // await signAndSendTransactionInstructions(
@@ -170,10 +166,10 @@ const test = async (): Promise<void> => {
     // console.log("Cancelled Order")
     // await sleep(5 * 1000);
 
-    let sourcePoolTokenKey = await findAssociatedTokenAddress(
-      poolInfo.address,
-      poolInfo.mintKey
-    );
+    // let sourcePoolTokenKey = await findAssociatedTokenAddress(
+    //   sourceOwnerAccount.publicKey,
+    //   poolInfo.mintKey
+    // );
 
     // let settleFundsTxInstructions = await settleFunds(
     //     connection,
@@ -181,7 +177,7 @@ const test = async (): Promise<void> => {
     //     SERUM_PROGRAM_ID,
     //     poolInfo.seed,
     //     marketInfo.address,
-    //     openOrderKey,
+    //     openOrderAccount.publicKey,
     //     null
     // );
 
@@ -214,18 +210,40 @@ const test = async (): Promise<void> => {
     // );
     // console.log("Redeemed out of Pool")
     // await sleep(5 * 1000);
-      
+     
+    
+    //////////////////////////////////////////////
+
     let fetchedSeeds = await getPoolsSeedsBySigProvider(
       connection,
       BONFIDABOT_PROGRAM_ID,
       undefined
     );
+    console.log();
+    console.log("Seeds of existing pools:")
     console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
+    console.log();
+    
+    let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
 
-    console.log(poolInfo);
+    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    console.log("Pool Info:")
+    console.log({
+        address: poolInfo.address.toString(),
+        serumProgramId: poolInfo.serumProgramId.toString(),
+        seed: bs58.encode(poolInfo.seed),
+        signalProvider: poolInfo.signalProvider.toString(),
+        status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
+        mintKey: poolInfo.mintKey.toString(),
+        assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
+        authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
+    });
+    console.log();
 
     let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    console.log("Pool Balances:")
     console.log(poolBalances);
+    console.log();
 
   };
   
