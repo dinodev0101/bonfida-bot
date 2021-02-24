@@ -15,7 +15,8 @@
     "lint": "npm run pretty && eslint .",
     "lint:fix": "npm run pretty:fix && eslint . --fix",
     "pretty": "prettier --check 'src/*.[jt]s'",
-    "pretty:fix": "prettier --write 'src/*.[jt]s'"
+    "pretty:fix": "prettier --write 'src/*.[jt]s'",
+    "doc": "yarn typedoc src/index.ts"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.0.0",
@@ -34,6 +35,7 @@
     "save-dev": "0.0.1-security",
     "ts-node": "^9.1.1",
     "tslib": "^2.1.0",
+    "typedoc": "^0.20.28",
     "typescript": "^4.1.3"
   },
   "dependencies": {
