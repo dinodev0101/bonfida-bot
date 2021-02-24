@@ -10,57 +10,41 @@ import {
     SystemInstruction,
     CreateAccountParams,
   } from '@solana/web3.js';
-  import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
-  import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT, OpenOrders } from '@project-serum/serum';
-  import {
-    cancelOrderInstruction,
-    createInstruction,
-    createOrderInstruction,
-    depositInstruction,
-    initInstruction,
-    Instruction,
-    settleFundsInstruction,
-  } from './instructions';
-  import {
-    signAndSendTransactionInstructions,
-    findAssociatedTokenAddress,
-    createAssociatedTokenAccount,
-    getAccountFromSeed,
-    Numberu64,
-    Numberu16,
-    getMarketData,
-    Numberu128,
-    sleep,
-  } from './utils';
-  import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
-  import { assert } from 'console';
-  import bs58 from 'bs58';
-  import * as crypto from "crypto";
-  import { Order } from '@project-serum/serum/lib/market';
-  import { cancelOrder, createOrder, createPool, deposit, redeem, settleFunds } from './main';
-import { getPoolsSeedsBySigProvider } from './secondary_bindings';
+import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
+import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT, OpenOrders } from '@project-serum/serum';
+import {
+  cancelOrderInstruction,
+  createInstruction,
+  createOrderInstruction,
+  depositInstruction,
+  initInstruction,
+  Instruction,
+  settleFundsInstruction,
+} from './instructions';
+import {
+  signAndSendTransactionInstructions,
+  findAssociatedTokenAddress,
+  createAssociatedTokenAccount,
+  getAccountFromSeed,
+  Numberu64,
+  Numberu16,
+  getMarketData,
+  Numberu128,
+  sleep,
+} from './utils';
+import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, SelfTradeBehavior, unpack_assets } from './state';
+import { assert } from 'console';
+import bs58 from 'bs58';
+import * as crypto from "crypto";
+import { Order } from '@project-serum/serum/lib/market';
+import { BONFIDABOT_PROGRAM_ID, cancelOrder, createOrder, createPool, deposit, ENDPOINTS, redeem, settleFunds } from './main';
+import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider } from './secondary_bindings';
 
 
 const test = async (): Promise<void> => {
   
-    // Connection
-    const ENDPOINTS = {
-      mainnet: 'https://solana-api.projectserum.com',
-      devnet: 'https://devnet.solana.com',
-    };
     const connection = new Connection(ENDPOINTS.mainnet);
   
-    const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
-      "GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB", //'4n5939p99bGJRCVPtf2kffKftHRjw6xRXQPcozsVDC77', old GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB new
-    );
-  
-    const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
-      "EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o",
-    );
-    
-    const FIDA_KEY: PublicKey = new PublicKey(
-      "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp",
-    );
     const FIDA_VAULT_KEY: PublicKey = new PublicKey(
       "Hoh5ocM73zN8RrjfgkY7SwdMnj3CXy3kDZpK4A5nLg3k",
     );
@@ -88,7 +72,7 @@ const test = async (): Promise<void> => {
     let marketData = await getMarketData(connection, marketInfo.address);
 
     // // Create Pool
-    // let [poolInfo, createInstructions] = await createPool(
+    // let [poolSeed, createInstructions] = await createPool(
     //   connection,
     //   BONFIDABOT_PROGRAM_ID,
     //   SERUM_PROGRAM_ID,
@@ -111,6 +95,11 @@ const test = async (): Promise<void> => {
     // );
     // console.log("Created Pool")
     // await sleep(5 * 1000);
+    // // Needs to sleep longer than this ?
+
+    let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
+
+    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
     // // Deposit into Pool
     // let depositTxInstructions = await deposit(
@@ -154,12 +143,14 @@ const test = async (): Promise<void> => {
 
     // await signAndSendTransactionInstructions(
     //   connection,
-    //   [signalProviderAccount],
+    //   [openOrderAccount, signalProviderAccount],
     //   payerAccount,
     //   createPoolTxInstructions
     // );
     // console.log("Created Order for Pool")
     // await sleep(5 * 1000);
+
+    let openOrderKey = new PublicKey("uhVXbJezVnyx1iuw8zuHHVBfWUFCxkaG1jMyDdGvDED");
   
     // let cancelOrderTxInstruction = await cancelOrder(
     //   connection,
@@ -167,7 +158,7 @@ const test = async (): Promise<void> => {
     //   SERUM_PROGRAM_ID,
     //   poolInfo.seed,
     //   marketInfo.address,
-    //   openOrderAccount.publicKey
+    //   openOrderKey
     // );
 
     // await signAndSendTransactionInstructions(
@@ -179,10 +170,10 @@ const test = async (): Promise<void> => {
     // console.log("Cancelled Order")
     // await sleep(5 * 1000);
 
-    // let sourcePoolTokenKey = await findAssociatedTokenAddress(
-    //   poolInfo.address,
-    //   poolInfo.mintKey
-    // );
+    let sourcePoolTokenKey = await findAssociatedTokenAddress(
+      poolInfo.address,
+      poolInfo.mintKey
+    );
 
     // let settleFundsTxInstructions = await settleFunds(
     //     connection,
@@ -190,7 +181,7 @@ const test = async (): Promise<void> => {
     //     SERUM_PROGRAM_ID,
     //     poolInfo.seed,
     //     marketInfo.address,
-    //     openOrderAccount.publicKey,
+    //     openOrderKey,
     //     null
     // );
 
@@ -227,47 +218,14 @@ const test = async (): Promise<void> => {
     let fetchedSeeds = await getPoolsSeedsBySigProvider(
       connection,
       BONFIDABOT_PROGRAM_ID,
-      signalProviderAccount.publicKey
+      undefined
     );
     console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
-  
-    // Add an instruction that will result in an error for testing
-    /*
-    Results in:
-    Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]
-      Program log: Transfer 2039280 lamports to the associated token account
-      Program 11111111111111111111111111111111 invoke [2]
-      Program 11111111111111111111111111111111 success
-      Program log: Allocate space for the associated token account
-      Program 11111111111111111111111111111111 invoke [2]
-      Program 11111111111111111111111111111111 success
-      Program log: Assign the associated token account to the SPL Token program
-      Program 11111111111111111111111111111111 invoke [2]
-      Program 11111111111111111111111111111111 success
-      Program log: Initialize the associated token account
-      Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]
-      Program log: Instruction: InitializeAccount
-      Program log: Error: Invalid Mint
-      Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 3469 of 169960 compute units
-      Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x2
-      Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 33509 of 200000 compute units
-      Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL BPF VM error: custom program error: 0x2
-      Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL failed: custom program error: 0x2
-    TODO remove
-    */
-    // let crashTxInstruction = await createAssociatedTokenAccount(
-    //   SystemProgram.programId,
-    //   payerAccount.publicKey,
-    //   sourceOwnerAccount.publicKey,
-    //   sourceOwnerAccount.publicKey
-    // );
-  
-    // let instructions: TransactionInstruction[] = depositInstructions;
-    // instructions = instructions.concat(createOrderTxInstructions);
-    // instructions = instructions.concat(settleFundsTxInstructions);
-    // instructions = instructions.concat(cancelOrderTxInstruction);
-    // instructions = instructions.concat(redeemTxInstruction);
-    // // instructions.push(crashTxInstruction);
+
+    console.log(poolInfo);
+
+    let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    console.log(poolBalances);
 
   };
   

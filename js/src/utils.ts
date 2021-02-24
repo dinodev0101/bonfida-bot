@@ -32,12 +32,6 @@ export async function findAssociatedTokenAddress(
   )[0];
 }
 
-export type PoolInfo = {
-  address: PublicKey,
-  mintKey: PublicKey,
-  seed: Uint8Array
-}
-
 export type MarketData = {
   address: PublicKey,
   coinMintKey: PublicKey,

@@ -35,19 +35,22 @@ export enum PoolStatusID {
 export type PoolStatus = [PoolStatusID, number];
 
 export class PoolHeader {
-  static LEN = 67;
+  static LEN = 99;
   serumProgramId!: PublicKey;
+  seed!: Uint8Array;
   signalProvider!: PublicKey;
   status!: PoolStatus;
   numberOfMarkets!: Numberu16;
 
   constructor(
     serumProgramId: PublicKey,
+    seed: Uint8Array,
     signalProvider: PublicKey,
     status: PoolStatus,
     numberOfMarkets: Numberu16
   ) {
     this.serumProgramId = serumProgramId;
+    this.seed = seed;
     this.signalProvider = signalProvider;
     this.status = status;
     this.numberOfMarkets = numberOfMarkets;
@@ -63,7 +66,7 @@ export class PoolHeader {
           PoolStatusID.PendingOrder,
           (sByte & STATUS_PENDING_ORDER_MASK) + 1
         ]
-      case 2: 
+      case 2:
         return [PoolStatusID.Locked, 0]
       case 3: 
         return [
@@ -77,11 +80,12 @@ export class PoolHeader {
 
   static fromBuffer(buf: Buffer): PoolHeader {
     const serumProgramId: PublicKey = new PublicKey(buf.slice(0, 32));
-    const signalProvider: PublicKey = new PublicKey(buf.slice(32, 64));
-    const status: PoolStatus = PoolHeader.match_status(buf.slice(64, 65));
+    const seed: Uint8Array = buf.slice(32, 64);
+    const signalProvider: PublicKey = new PublicKey(buf.slice(64, 96));
+    const status: PoolStatus = PoolHeader.match_status(buf.slice(96, 97));
     // @ts-ignore
-    const numberOfMarkets = Numberu16.fromBuffer(buf.slice(65, 67));
-    return new PoolHeader(serumProgramId, signalProvider, status, numberOfMarkets);
+    const numberOfMarkets = Numberu16.fromBuffer(buf.slice(97, 99));
+    return new PoolHeader(serumProgramId, seed, signalProvider, status, numberOfMarkets);
   }
 }
 
