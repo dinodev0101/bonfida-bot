@@ -122,6 +122,8 @@ async fn test_bonfida_bot() {
         &source_actor.asset_accounts,
         deposit_amounts,
         &serum_market.market_key.pubkey(),
+        604800,
+        100
     )
     .await
     .unwrap();

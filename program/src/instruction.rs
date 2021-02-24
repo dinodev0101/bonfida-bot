@@ -1,4 +1,5 @@
 use crate::error::BonfidaBotError;
+use crate::state::{BONFIDA_BNB, BONFIDA_FEE};
 use serum_dex::{
     instruction::SelfTradeBehavior,
     matching::{OrderType, Side},
@@ -9,10 +10,12 @@ use solana_program::{
     program_error::ProgramError,
     pubkey::Pubkey,
 };
+use spl_associated_token_account::get_associated_token_address;
 use std::{
     convert::TryInto,
     mem::size_of,
     num::{NonZeroU16, NonZeroU64},
+    str::FromStr,
 };
 
 #[repr(C)]
@@ -34,7 +37,7 @@ pub enum PoolInstruction {
         pool_seed: [u8; 32],
         // The maximum number of token asset types the pool will ever be able to hold
         max_number_of_assets: u32,
-        number_of_markets: u16
+        number_of_markets: u16,
     },
     /// Creates a new pool from an empty (uninitialized) one by performing the first deposit
     /// of any number of different tokens and setting the pubkey of the signal provider.
@@ -47,19 +50,22 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The spl-token program account
-    ///   1. `[writable]` The pooltoken mint account
-    ///   1. `[writable]` The target account that receives the pooltokens
-    ///   0. `[writable]` The pool account
-    ///   2..M+2. `[writable]` The M pool (associated) token assets accounts in the order of the
+    ///   1. `[]` The clock sysvar account
+    ///   2. `[writable]` The pooltoken mint account
+    ///   3. `[writable]` The target account that receives the pooltokens
+    ///   4. `[writable]` The pool account
+    ///   5..M+5. `[writable]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets in the pool account data.
-    ///   M+3. `[signer]` The source owner account
-    ///   M+4..2M+4. `[writable]` The M source token accounts in the same order as above
+    ///   M+5. `[signer]` The source owner account
+    ///   M+6..2M+6. `[writable]` The M source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
         serum_program_id: Pubkey,
         signal_provider_key: Pubkey,
+        fee_collection_period: u64,
+        fee_ratio: u16,
         deposit_amounts: Vec<u64>,
-        markets: Vec<Pubkey>
+        markets: Vec<Pubkey>,
     },
     /// Buy into the pool. The source deposits tokens into the pool and the target receives
     /// a corresponding amount of pool-token in exchange. The program will try to
@@ -72,12 +78,15 @@ pub enum PoolInstruction {
     ///   * Single owner
     ///   0. `[]` The spl-token program account
     ///   1. `[writable]` The pooltoken mint account
-    ///   1. `[writable]` The target account that receives the pooltokens
-    ///   1. `[]` The pool account
-    ///   2..M+2. `[writable]` The M pool (associated) token assets accounts in the order of the
+    ///   2. `[writable]` The target account that receives the pooltokens
+    ///   3. `[writable]` The signal provider account that receives the pooltoken fees
+    ///   4. `[writable]` The Bonfida fee account that receives the pooltoken fees
+    ///   5. `[writable]` The Bonfida buy and burn account that receives the pooltoken fees
+    ///   6. `[]` The pool account
+    ///   7..M+7. `[writable]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets in the pool account data.
-    ///   M+3. `[signer]` The source owner account
-    ///   M+4..2M+4. `[writable]` The M source token accounts in the same order as above
+    ///   M+7. `[signer]` The source owner account
+    ///   M+8..2M+8. `[writable]` The M source token accounts in the same order as above
     Deposit {
         pool_seed: [u8; 32],
         // The amount of pool token the source wishes to buy
@@ -161,18 +170,32 @@ pub enum PoolInstruction {
     ///
     ///   * Single owner
     ///   0. `[]` The spl-token program account
-    ///   1. `[writable]` The pooltoken mint account
-    ///   2. `[signer]` The pooltoken source account owner
-    ///   3. `[writable]` The pooltoken source account
-    ///   4. `[]` The pool account
-    ///   5..M+5. `[writable]` The M pool (associated) token assets accounts in the order of the
+    ///   1. `[]` The clock sysvar account
+    ///   2. `[writable]` The pooltoken mint account
+    ///   3. `[signer]` The pooltoken source account owner
+    ///   4. `[writable]` The pooltoken source account
+    ///   5. `[]` The pool account
+    ///   6..M+6. `[writable]` The M pool (associated) token assets accounts in the order of the
     ///      corresponding PoolAssets found in the pool account data.
-    ///   M+6..2M+6. `[writable]` The M target token accounts in the same order as above
+    ///   M+7..2M+7. `[writable]` The M target token accounts in the same order as above
     Redeem {
         pool_seed: [u8; 32],
         // The amount of pool token the source wishes to redeem
         pool_token_amount: u64,
     },
+    /// Trigger signal provider and Bonfida fee collection
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   * Single owner
+    ///   0. `[]` The spl-token program account
+    ///   1. `[]` The clock sysvar account
+    ///   5. `[writable]` The pool account
+    ///   2. `[writable]` The pooltoken mint account
+    ///   3. `[writable]` The signal provider account that receives the pooltoken fees
+    ///   4. `[writable]` The Bonfida fee account that receives the pooltoken fees
+    ///   5. `[writable]` The Bonfida buy and burn account that receives the pooltoken fees
+    CollectFees { pool_seed: [u8; 32] },
 }
 
 impl PoolInstruction {
@@ -198,7 +221,7 @@ impl PoolInstruction {
                 Self::Init {
                     pool_seed,
                     max_number_of_assets,
-                    number_of_markets
+                    number_of_markets,
                 }
             }
             1 => {
@@ -221,14 +244,24 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(u16::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
+                let fee_collection_period = rest
+                    .get(98..106)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                let fee_ratio = rest
+                    .get(106..108)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u16::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
                 let mut markets = Vec::with_capacity(number_of_markets as usize);
-                let mut offset = 98;
+                let mut offset = 108;
                 for _ in 0..number_of_markets {
-                    markets.push(rest
-                        .get(offset..offset + 32)
-                        .and_then(|slice| slice.try_into().ok())
-                        .map(Pubkey::new)
-                        .ok_or(InvalidInstruction)?
+                    markets.push(
+                        rest.get(offset..offset + 32)
+                            .and_then(|slice| slice.try_into().ok())
+                            .map(Pubkey::new)
+                            .ok_or(InvalidInstruction)?,
                     );
                     offset = offset + 32;
                 }
@@ -249,6 +282,8 @@ impl PoolInstruction {
                     signal_provider_key,
                     markets,
                     deposit_amounts,
+                    fee_collection_period,
+                    fee_ratio,
                 }
             }
             2 => {
@@ -411,6 +446,13 @@ impl PoolInstruction {
                     pool_token_amount,
                 }
             }
+            7 => {
+                let pool_seed: [u8; 32] = rest
+                    .get(..32)
+                    .and_then(|slice| slice.try_into().ok())
+                    .unwrap();
+                Self::CollectFees { pool_seed }
+            }
             _ => {
                 msg!("Unsupported tag");
                 return Err(InvalidInstruction.into());
@@ -424,7 +466,7 @@ impl PoolInstruction {
             Self::Init {
                 pool_seed,
                 max_number_of_assets,
-                number_of_markets
+                number_of_markets,
             } => {
                 buf.push(0);
                 buf.extend_from_slice(pool_seed);
@@ -435,14 +477,18 @@ impl PoolInstruction {
                 pool_seed,
                 serum_program_id,
                 signal_provider_key,
+                fee_collection_period,
+                fee_ratio,
                 deposit_amounts,
-                markets
+                markets,
             } => {
                 buf.push(1);
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&serum_program_id.to_bytes());
                 buf.extend_from_slice(&signal_provider_key.to_bytes());
                 buf.extend_from_slice(&(markets.len() as u16).to_le_bytes());
+                buf.extend_from_slice(&fee_collection_period.to_le_bytes());
+                buf.extend_from_slice(&fee_ratio.to_le_bytes());
                 for market in markets {
                     buf.extend_from_slice(&market.to_bytes())
                 }
@@ -541,6 +587,10 @@ impl PoolInstruction {
                 buf.extend_from_slice(pool_seed);
                 buf.extend_from_slice(&pool_token_amount.to_le_bytes());
             }
+            Self::CollectFees { pool_seed } => {
+                buf.push(7);
+                buf.extend_from_slice(pool_seed);
+            }
         };
         buf
     }
@@ -557,12 +607,12 @@ pub fn init(
     pool_key: &Pubkey,
     pool_seed: [u8; 32],
     max_number_of_assets: u32,
-    number_of_markets: u16
+    number_of_markets: u16,
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Init {
         pool_seed,
         max_number_of_assets,
-        number_of_markets
+        number_of_markets,
     }
     .pack();
     let accounts = vec![
@@ -583,6 +633,7 @@ pub fn init(
 // Creates a `CreatePool` instruction
 pub fn create(
     spl_token_program_id: &Pubkey,
+    clock_sysvar_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
     mint_key: &Pubkey,
     pool_key: &Pubkey,
@@ -593,19 +644,24 @@ pub fn create(
     source_asset_keys: &Vec<Pubkey>,
     serum_program_id: &Pubkey,
     signal_provider_key: &Pubkey,
+    fee_collection_period: u64,
+    fee_ratio: u16,
     deposit_amounts: Vec<u64>,
-    markets: Vec<Pubkey>
+    markets: Vec<Pubkey>,
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
         serum_program_id: *serum_program_id,
         signal_provider_key: *signal_provider_key,
         deposit_amounts,
-        markets
+        markets,
+        fee_collection_period,
+        fee_ratio,
     }
     .pack();
     let mut accounts = vec![
         AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*clock_sysvar_id, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*target_pool_token_key, false),
         AccountMeta::new(*pool_key, false),
@@ -633,8 +689,10 @@ pub fn deposit(
     pool_key: &Pubkey,
     pool_asset_keys: &Vec<Pubkey>,
     target_pool_token_key: &Pubkey,
+    signal_provider_pool_token_key: &Pubkey,
     source_owner: &Pubkey,
     source_asset_keys: &Vec<Pubkey>,
+    signal_provider_asset_keys: &Vec<Pubkey>,
     pool_seed: [u8; 32],
     pool_token_amount: u64,
 ) -> Result<Instruction, ProgramError> {
@@ -643,10 +701,17 @@ pub fn deposit(
         pool_token_amount,
     }
     .pack();
+    let bonfida_fee_pt_account =
+        get_associated_token_address(&Pubkey::from_str(BONFIDA_FEE).unwrap(), mint_key);
+    let bonfida_bnb_pt_account =
+        get_associated_token_address(&Pubkey::from_str(BONFIDA_BNB).unwrap(), mint_key);
     let mut accounts = vec![
         AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*target_pool_token_key, false),
+        AccountMeta::new(*signal_provider_pool_token_key, false),
+        AccountMeta::new(bonfida_fee_pt_account, false),
+        AccountMeta::new(bonfida_bnb_pt_account, false),
         AccountMeta::new_readonly(*pool_key, false),
     ];
     for pool_asset_key in pool_asset_keys.iter() {
@@ -655,6 +720,9 @@ pub fn deposit(
     accounts.push(AccountMeta::new_readonly(*source_owner, true));
     for source_asset_key in source_asset_keys.iter() {
         accounts.push(AccountMeta::new(*source_asset_key, false))
+    }
+    for key in signal_provider_asset_keys.iter() {
+        accounts.push(AccountMeta::new(*key, false))
     }
     Ok(Instruction {
         program_id: *bonfidabot_program_id,
@@ -666,6 +734,7 @@ pub fn deposit(
 // Creates a `Redeem` instruction
 pub fn redeem(
     spl_token_program_id: &Pubkey,
+    clock_sysvar_id: &Pubkey,
     bonfidabot_program_id: &Pubkey,
     mint_key: &Pubkey,
     pool_key: &Pubkey,
@@ -683,6 +752,7 @@ pub fn redeem(
     .pack();
     let mut accounts = vec![
         AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*clock_sysvar_id, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new_readonly(*source_pool_token_owner_key, true),
         AccountMeta::new(*source_pool_token_key, false),
@@ -744,7 +814,6 @@ pub fn create_order(
         coin_lot_size,
         pc_lot_size,
         target_mint: *target_mint,
-        
     }
     .pack();
     let mut accounts = vec![
@@ -853,6 +922,37 @@ pub fn settle_funds(
     })
 }
 
+pub fn collect_fees(
+    spl_token_program_id: &Pubkey,
+    clock_sysvar_id: &Pubkey,
+    bonfidabot_program_id: &Pubkey,
+    pool_key: &Pubkey,
+    pool_token_mint: &Pubkey,
+    signal_provider_pool_token_key: &Pubkey,
+    pool_seed: [u8; 32],
+) -> Result<Instruction, ProgramError> {
+    let data = PoolInstruction::CollectFees { pool_seed }.pack();
+
+    let bonfida_fee_pt_account =
+        get_associated_token_address(&Pubkey::from_str(BONFIDA_FEE).unwrap(), pool_token_mint);
+    let bonfida_bnb_pt_account =
+        get_associated_token_address(&Pubkey::from_str(BONFIDA_BNB).unwrap(), pool_token_mint);
+    let accounts = vec![
+        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*clock_sysvar_id, false),
+        AccountMeta::new(*pool_key, false),
+        AccountMeta::new(*pool_token_mint, false),
+        AccountMeta::new(*signal_provider_pool_token_key, false),
+        AccountMeta::new(bonfida_fee_pt_account, false),
+        AccountMeta::new(bonfida_bnb_pt_account, false),
+    ];
+    Ok(Instruction {
+        program_id: *bonfidabot_program_id,
+        accounts,
+        data,
+    })
+}
+
 #[cfg(test)]
 mod test {
     use std::num::{NonZeroU16, NonZeroU64};
@@ -870,7 +970,7 @@ mod test {
         let original_init = PoolInstruction::Init {
             pool_seed: [50u8; 32],
             max_number_of_assets: 43,
-            number_of_markets: 50
+            number_of_markets: 50,
         };
         assert_eq!(
             original_init,
@@ -882,7 +982,14 @@ mod test {
             serum_program_id: Pubkey::new_unique(),
             signal_provider_key: Pubkey::new_unique(),
             deposit_amounts: vec![23 as u64, 43 as u64],
-            markets: vec![Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique()]
+            markets: vec![
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+            ],
+            fee_collection_period: 10_000,
+            fee_ratio: 15,
         };
         let packed_create = original_create.pack();
         let unpacked_create = PoolInstruction::unpack(&packed_create).unwrap();
@@ -941,5 +1048,12 @@ mod test {
         let packed_cancel_order = original_cancel_order.pack();
         let unpacked_cancel_order = PoolInstruction::unpack(&packed_cancel_order).unwrap();
         assert_eq!(original_cancel_order, unpacked_cancel_order);
+
+        let original_collect_fees = PoolInstruction::CollectFees {
+            pool_seed: [50u8; 32],
+        };
+        let packed_collect_fees = original_collect_fees.pack();
+        let unpacked_collect_fees = PoolInstruction::unpack(&packed_collect_fees).unwrap();
+        assert_eq!(original_collect_fees, unpacked_collect_fees);
     }
 }

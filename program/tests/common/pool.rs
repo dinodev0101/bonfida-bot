@@ -1,9 +1,10 @@
-use std::num::{NonZeroU16, NonZeroU64};
+use std::{num::{NonZeroU16, NonZeroU64}, str::FromStr};
 
 #[cfg(not(feature = "fuzz"))]
 use bonfida_bot::instruction::{
     cancel_order, create, create_order, deposit, init, redeem, settle_funds,
 };
+use bonfida_bot::state::{BONFIDA_BNB, BONFIDA_FEE};
 
 #[cfg(feature = "fuzz")]
 use crate::instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds};
@@ -106,6 +107,11 @@ impl TestPool {
         wrap_process_transaction(&ctx, instructions, vec![])
             .await
             .unwrap();
+        
+        // Initialize fee accounts
+        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_FEE).unwrap()).await;
+        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_BNB).unwrap()).await;
+        
     }
 
     pub async fn get_pt_account(&self, ctx: &Context, owner: &Pubkey) -> Pubkey {
@@ -153,6 +159,16 @@ impl TestPool {
         accounts
     }
 
+    pub fn get_signal_provider_accounts(
+        &self
+    ) -> Vec<Pubkey> {
+        let mut result = Vec::with_capacity(self.mints.len());;
+        for m in self.mints.iter() {
+            result.push(get_associated_token_address(&self.signal_provider.pubkey(), &m.key));
+        };
+        result
+    }
+
     pub async fn create(
         &self,
         ctx: &Context,
@@ -161,10 +177,13 @@ impl TestPool {
         source_asset_keys: &Vec<Pubkey>,
         deposit_amounts: Vec<u64>,
         market: &Pubkey,
+        fee_collection_period: u64,
+        fee_ratio: u16
     ) -> Result<(), TransportError> {
         println!("Deposit amounts length {:#?}", deposit_amounts.len());
         let create_instruction = create(
             &spl_token::id(),
+            &sysvar::clock::id(),
             &self.program_id,
             &self.mint_key,
             &self.key,
@@ -175,6 +194,8 @@ impl TestPool {
             &source_asset_keys,
             &ctx.serum_program_id,
             &self.signal_provider.pubkey(),
+            fee_collection_period,
+            fee_ratio,
             deposit_amounts,
             vec![market.clone()],
         )
@@ -197,8 +218,10 @@ impl TestPool {
             &self.key,
             &self.mints.iter().map(|m| m.pool_asset_key).collect(),
             &pooltoken_target_key,
+            &get_associated_token_address(&self.signal_provider.pubkey(), &self.mint_key),
             &source_owner.pubkey(),
             &source_asset_keys,
+            &self.get_signal_provider_accounts(),
             self.seeds,
             amount,
         )
@@ -326,6 +349,7 @@ impl TestPool {
     ) -> Result<(), TransportError> {
         let redeem_instruction = redeem(
             &spl_token::id(),
+            &sysvar::clock::id(),
             &self.program_id,
             &self.mint_key,
             &self.key,
@@ -339,6 +363,12 @@ impl TestPool {
         .unwrap();
         wrap_process_transaction(&ctx, vec![redeem_instruction], vec![&source_owner])
             .await
+    }
+
+    pub async fn collect_fees(
+        &self,
+        ctx: &Context,
+    ) {
     }
 }
 

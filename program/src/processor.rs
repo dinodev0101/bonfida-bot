@@ -2,15 +2,26 @@ use std::{
     cmp::min,
     convert::TryInto,
     num::{NonZeroU16, NonZeroU64, NonZeroU8},
+    str::FromStr,
 };
 
-use crate::{error::BonfidaBotError, instruction::PoolInstruction, state::{FIDA_MINT_KEY, FIDA_MIN_AMOUNT, PUBKEY_LENGTH, PoolAsset, PoolHeader, PoolStatus, get_asset_slice, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset}, utils::{check_pool_key, check_signal_provider, fill_slice}};
+use crate::{
+    error::BonfidaBotError,
+    instruction::PoolInstruction,
+    state::{
+        get_asset_slice, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset,
+        PoolAsset, PoolHeader, PoolStatus, BONFIDA_BNB, BONFIDA_FEE, FIDA_MINT_KEY,
+        FIDA_MIN_AMOUNT, PUBKEY_LENGTH,
+    },
+    utils::{check_pool_key, check_signal_provider, fill_slice},
+};
 use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
 };
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
+    clock::Clock,
     entrypoint::ProgramResult,
     msg,
     program::{invoke, invoke_signed},
@@ -127,11 +138,15 @@ impl Processor {
         signal_provider_key: &Pubkey,
         deposit_amounts: Vec<u64>,
         markets: Vec<Pubkey>,
+        fee_collection_period: u64,
+        fee_ratio: u16,
     ) -> ProgramResult {
         let number_of_assets = deposit_amounts.len();
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
+        let clock_sysvar_account = next_account_info(accounts_iter)?;
+
         let mint_account = next_account_info(accounts_iter)?;
         let target_pool_token_account = next_account_info(accounts_iter)?;
 
@@ -145,6 +160,9 @@ impl Processor {
         for _ in 0..number_of_assets {
             source_assets_accounts.push(next_account_info(accounts_iter)?)
         }
+
+        let current_timestamp =
+            Clock::from_account_info(&clock_sysvar_account)?.unix_timestamp as u64;
 
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
         let mint_key = Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
@@ -176,6 +194,10 @@ impl Processor {
         }
         if markets.len() >> 16 != 0 {
             msg!("Number of given markets is too high.");
+            return Err(ProgramError::InvalidArgument);
+        }
+        if fee_collection_period < 604800 {
+            msg!("Fee collection period should be longer than a.");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -254,6 +276,9 @@ impl Processor {
             signal_provider: *signal_provider_key,
             status: PoolStatus::Unlocked,
             number_of_markets: markets.len() as u16,
+            last_fee_collection_timestamp: current_timestamp,
+            fee_collection_period,
+            fee_ratio,
         };
         let mut data = pool_account.data.borrow_mut();
         state_header.pack_into_slice(&mut data);
@@ -282,7 +307,12 @@ impl Processor {
 
         let spl_token_account = next_account_info(accounts_iter)?;
         let mint_account = next_account_info(accounts_iter)?;
+
         let target_pool_token_account = next_account_info(accounts_iter)?;
+        let signal_provider_pt_account = next_account_info(accounts_iter)?;
+        let bonfida_fee_pt_account = next_account_info(accounts_iter)?;
+        let bonfida_bnb_pt_account = next_account_info(accounts_iter)?;
+
         let pool_account = next_account_info(accounts_iter)?;
 
         let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
@@ -303,6 +333,14 @@ impl Processor {
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id).unwrap();
         let pool_mint_key =
             Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+
+        let signal_provider_pt_key =
+            get_associated_token_address(&pool_header.signal_provider, &pool_mint_key);
+        let bonfida_fee_pt_key =
+            get_associated_token_address(&Pubkey::from_str(BONFIDA_FEE).unwrap(), &pool_mint_key);
+        let bonfida_bnb_pt_key =
+            get_associated_token_address(&Pubkey::from_str(BONFIDA_BNB).unwrap(), &pool_mint_key);
+
         // Safety verifications
         if pool_token_amount < 1_000 {
             msg!("Provided pool token amount isn't sufficient.");
@@ -324,6 +362,22 @@ impl Processor {
             msg!("Program should own pool account.");
             return Err(ProgramError::InvalidArgument);
         }
+
+        if signal_provider_pt_account.key != &signal_provider_pt_key {
+            msg!("The provided signal provider pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if bonfida_fee_pt_account.key != &bonfida_fee_pt_key {
+            msg!("The provided bonfida fee pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if bonfida_bnb_pt_account.key != &bonfida_bnb_pt_key {
+            msg!("The provided bonfida buy and burn pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         match pool_header.status {
             PoolStatus::Unlocked => (),
             _ => {
@@ -396,6 +450,12 @@ impl Processor {
             )?;
         }
 
+        let cast_fee_ratio = pool_header.fee_ratio as u128;
+
+        let pool_token_fee = ((cast_fee_ratio * pool_token_effective_amount as u128) >> 16) as u64;
+
+        let pool_token_amount_after_fee = pool_token_effective_amount - pool_token_fee;
+
         // Mint the effective amount of pooltokens to the target
         let instruction = mint_to(
             spl_token_account.key,
@@ -403,7 +463,7 @@ impl Processor {
             target_pool_token_account.key,
             &pool_key,
             &[],
-            pool_token_effective_amount,
+            pool_token_amount_after_fee,
         )?;
 
         invoke_signed(
@@ -412,6 +472,69 @@ impl Processor {
                 spl_token_account.clone(),
                 mint_account.clone(),
                 target_pool_token_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        // Mint the effective amount of pooltokens to the target
+        let instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            signal_provider_pt_account.key,
+            &pool_key,
+            &[],
+            pool_token_fee / 2,
+        )?;
+
+        invoke_signed(
+            &instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                signal_provider_pt_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        // Mint the effective amount of pooltokens to the target
+        let instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            bonfida_fee_pt_account.key,
+            &pool_key,
+            &[],
+            pool_token_fee / 4,
+        )?;
+
+        invoke_signed(
+            &instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                bonfida_fee_pt_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        // Mint the effective amount of pooltokens to the target
+        let instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            bonfida_bnb_pt_account.key,
+            &pool_key,
+            &[],
+            pool_token_fee / 4,
+        )?;
+
+        invoke_signed(
+            &instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                bonfida_bnb_pt_account.clone(),
                 pool_account.clone(),
             ],
             &[&[&pool_seed]],
@@ -564,10 +687,13 @@ impl Processor {
 
         if pool_asset_amount == amount_to_trade {
             // If order empties a pool asset, reset it
-            fill_slice(get_asset_slice(
-                &mut pool_account.data.borrow_mut()[asset_offset..],
-                source_index,
-            )?, 0u8);
+            fill_slice(
+                get_asset_slice(
+                    &mut pool_account.data.borrow_mut()[asset_offset..],
+                    source_index,
+                )?,
+                0u8,
+            );
         }
 
         let new_order_instruction = new_order(
@@ -767,12 +893,12 @@ impl Processor {
         }
 
         //TODO fees
-        
-        &pool_coin_asset.pack_into_slice( get_asset_slice(
+
+        &pool_coin_asset.pack_into_slice(get_asset_slice(
             &mut pool_account.data.borrow_mut()[asset_offset..],
             coin_index,
         )?);
-        &pool_pc_asset.pack_into_slice( get_asset_slice(
+        &pool_pc_asset.pack_into_slice(get_asset_slice(
             &mut pool_account.data.borrow_mut()[asset_offset..],
             pc_index,
         )?);
@@ -868,9 +994,12 @@ impl Processor {
         // The amount of pooltokens wished to be redeemed
         pool_token_amount: u64,
     ) -> ProgramResult {
+        // TODO: Prevent redeem if there are any fees to collect
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
+        let clock_sysvar_account = next_account_info(accounts_iter)?;
+
         let mint_account = next_account_info(accounts_iter)?;
         let source_pool_token_owner_account = next_account_info(accounts_iter)?;
         let source_pool_token_account = next_account_info(accounts_iter)?;
@@ -914,6 +1043,15 @@ impl Processor {
             _ => (),
         };
 
+        let current_timestamp =
+            Clock::from_account_info(clock_sysvar_account)?.unix_timestamp as u64;
+        if current_timestamp - pool_header.last_fee_collection_timestamp
+            > pool_header.fee_collection_period
+        {
+            msg!("Fees should be collected before redeeming.");
+            return Err(BonfidaBotError::LockedOperation.into());
+        }
+
         let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply;
 
         // Execute buy out
@@ -921,7 +1059,7 @@ impl Processor {
             let pool_asset_key =
                 get_associated_token_address(&pool_account.key, &pool_assets[i].mint_address);
 
-            if pool_asset_key != *pool_assets_accounts[i as usize].key {
+            if pool_asset_key != *pool_assets_accounts[i].key {
                 msg!("Provided pool asset account is invalid");
                 return Err(ProgramError::InvalidArgument);
             }
@@ -984,6 +1122,143 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_collect_fees(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        pool_seed: [u8; 32],
+    ) -> ProgramResult {
+        let accounts_iter = &mut accounts.iter();
+        let spl_token_account = next_account_info(accounts_iter)?;
+        let clock_sysvar_account = next_account_info(accounts_iter)?;
+        let pool_account = next_account_info(accounts_iter)?;
+
+        let mint_account = next_account_info(accounts_iter)?;
+        let signal_provider_pt_account = next_account_info(accounts_iter)?;
+        let bonfida_fee_pt_account = next_account_info(accounts_iter)?;
+        let bonfida_bnb_pt_account = next_account_info(accounts_iter)?;
+
+        check_pool_key(program_id, pool_account.key, &pool_seed)?;
+
+        let pool_mint_key =
+            Pubkey::create_program_address(&[&pool_seed, &[1]], &program_id).unwrap();
+        if pool_mint_key != *mint_account.key {
+            msg!("Provided mint account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+
+        let signal_provider_pt_key =
+            get_associated_token_address(&pool_header.signal_provider, &pool_mint_key);
+        let bonfida_fee_pt_key =
+            get_associated_token_address(&Pubkey::from_str(BONFIDA_FEE).unwrap(), &pool_mint_key);
+        let bonfida_bnb_pt_key =
+            get_associated_token_address(&Pubkey::from_str(BONFIDA_BNB).unwrap(), &pool_mint_key);
+
+        if signal_provider_pt_account.key != &signal_provider_pt_key {
+            msg!("The provided signal provider pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if bonfida_fee_pt_account.key != &bonfida_fee_pt_key {
+            msg!("The provided bonfida fee pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if bonfida_bnb_pt_account.key != &bonfida_bnb_pt_key {
+            msg!("The provided bonfida buy and burn pool token account is invalid.");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        let current_timestamp =
+            Clock::from_account_info(clock_sysvar_account)?.unix_timestamp as u64;
+        let fee_cycles_to_collect = (current_timestamp - pool_header.last_fee_collection_timestamp)
+            / pool_header.fee_collection_period;
+
+        // 2**-16 = 1.52587890625e-5_f32
+        let collect_ratio_u16 = ((pool_header.fee_ratio as f32 * 1.52587890625e-5_f32).powi(
+            fee_cycles_to_collect
+                .try_into()
+                .map_err(|_| BonfidaBotError::Overflow)?,
+        ) * 65536.) as u16;
+        let collect_ratio_reciprocal = (!collect_ratio_u16) as u128;
+        let collect_ratio = collect_ratio_u16 as u128;
+        pool_header.last_fee_collection_timestamp +=
+            fee_cycles_to_collect * pool_header.fee_collection_period;
+        let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply as u128;
+        let tokens_to_mint = (collect_ratio * total_pooltokens / collect_ratio_reciprocal) as u64;
+
+        // Mint the required amount of pooltokens to the signal provider
+        let mint_to_sp_instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            signal_provider_pt_account.key,
+            &pool_account.key,
+            &[],
+            tokens_to_mint / 2,
+        )?;
+
+        invoke_signed(
+            &mint_to_sp_instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                signal_provider_pt_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        // Mint the required amount of pooltokens to the bonfida fee account
+        let mint_to_bonfida_fee_instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            &bonfida_fee_pt_key,
+            &pool_account.key,
+            &[],
+            tokens_to_mint / 4,
+        )?;
+
+        invoke_signed(
+            &mint_to_bonfida_fee_instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                bonfida_fee_pt_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        // Mint the required amount of pooltokens to the bonfida fee account
+        let mint_to_bonfida_bnb_instruction = mint_to(
+            spl_token_account.key,
+            &pool_mint_key,
+            &bonfida_bnb_pt_key,
+            &pool_account.key,
+            &[],
+            tokens_to_mint / 4,
+        )?;
+
+        invoke_signed(
+            &mint_to_bonfida_bnb_instruction,
+            &[
+                spl_token_account.clone(),
+                mint_account.clone(),
+                bonfida_bnb_pt_account.clone(),
+                pool_account.clone(),
+            ],
+            &[&[&pool_seed]],
+        )?;
+
+        PoolHeader::pack(
+            pool_header,
+            &mut pool_account.data.borrow_mut()[..PoolHeader::LEN],
+        )?;
+
+        Ok(())
+    }
+
     pub fn process_instruction(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -1011,6 +1286,8 @@ impl Processor {
                 pool_seed,
                 serum_program_id,
                 signal_provider_key,
+                fee_collection_period,
+                fee_ratio,
                 deposit_amounts,
                 markets,
             } => {
@@ -1023,6 +1300,8 @@ impl Processor {
                     &signal_provider_key,
                     deposit_amounts,
                     markets,
+                    fee_collection_period,
+                    fee_ratio,
                 )
             }
             PoolInstruction::Deposit {
@@ -1094,6 +1373,12 @@ impl Processor {
             } => {
                 msg!("Instruction: Redeem out of Pool");
                 Self::process_redeem(program_id, accounts, pool_seed, pool_token_amount)
+            }
+            PoolInstruction::CollectFees {
+                pool_seed
+            } => {
+                msg!("Instruction: Collect Fees for Pool");
+                Self::process_collect_fees(program_id, accounts, pool_seed)
             }
         }
     }

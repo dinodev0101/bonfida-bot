@@ -10,6 +10,9 @@ pub const FIDA_MIN_AMOUNT: u64 = 1000000;
 pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 pub const PUBKEY_LENGTH: usize = 32;
 
+pub const BONFIDA_FEE: &str = "31LVSggbVz4VcwBSPdtK8HJ3Lt1cKTJUVQTRNNYMfqBq";
+pub const BONFIDA_BNB: &str = "3oQzjfjzUkJ5qHsERk2JPEpAKo34dxAQjUriBqursfxU";
+
 // Pool state is composed of PoolHeader, Array of markets (pubkeys) and array of poolassets
 
 #[derive(Debug, PartialEq)]
@@ -28,11 +31,15 @@ pub enum PoolStatus {
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
+    // TODO: Add pool seeds to header
     pub serum_program_id: Pubkey,
     pub seed: [u8; 32],
     pub signal_provider: Pubkey,
     pub status: PoolStatus,
-    pub number_of_markets: u16, 
+    pub number_of_markets: u16,
+    pub fee_ratio: u16,
+    pub last_fee_collection_timestamp: u64,
+    pub fee_collection_period: u64,
 }
 
 const STATUS_PENDING_ORDER_FLAG: u8 = 1 << 6;
@@ -43,7 +50,7 @@ const STATUS_UNLOCKED_FLAG: u8 = STATUS_PENDING_ORDER_MASK;
 impl Sealed for PoolHeader {}
 
 impl Pack for PoolHeader {
-    const LEN: usize = 99;
+    const LEN: usize = 117;
 
     fn pack_into_slice(&self, target: &mut [u8]) {
         let serum_program_id_bytes = self.serum_program_id.to_bytes();
@@ -66,6 +73,9 @@ impl Pack for PoolHeader {
         };
         let number_of_markets_bytes = self.number_of_markets.to_le_bytes();
         target[97..99].copy_from_slice(&number_of_markets_bytes);
+        target[99..101].copy_from_slice(&self.fee_ratio.to_le_bytes());
+        target[101..109].copy_from_slice(&self.last_fee_collection_timestamp.to_le_bytes());
+        target[109..117].copy_from_slice(&self.fee_collection_period.to_le_bytes());
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -89,13 +99,19 @@ impl Pack for PoolHeader {
                 _ => return Err(ProgramError::InvalidAccountData),
             }
         };
-        let number_of_markets = u16::from_le_bytes(src[97..].try_into().unwrap());
+        let number_of_markets = u16::from_le_bytes(src[97..99].try_into().unwrap());
+        let fee_ratio = u16::from_le_bytes(src[99..101].try_into().unwrap());
+        let last_fee_collection_timestamp = u64::from_le_bytes(src[101..109].try_into().unwrap());
+        let fee_collection_period = u64::from_le_bytes(src[109..117].try_into().unwrap());
         Ok(Self {
             serum_program_id,
             seed,
             signal_provider,
             status,
-            number_of_markets
+            number_of_markets,
+            fee_ratio,
+            last_fee_collection_timestamp,
+            fee_collection_period
         })
     }
 
@@ -216,7 +232,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
 
         let header_size = PoolHeader::LEN;
@@ -247,7 +266,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
         assert_eq!(
             header_state,
@@ -259,7 +281,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::LockedPendingOrder(NonZeroU8::new(64).unwrap()),
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
         assert_eq!(
             header_state,
@@ -271,7 +296,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Locked,
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
         assert_eq!(
             header_state,
@@ -283,7 +311,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Unlocked,
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
         assert_eq!(
             header_state,
@@ -295,7 +326,10 @@ mod tests {
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::Uninitialized,
-            number_of_markets: 234
+            number_of_markets: 234,
+            fee_ratio: 15,
+            last_fee_collection_timestamp: 1_000_000_000,
+            fee_collection_period: 10_000
         };
         assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
     }

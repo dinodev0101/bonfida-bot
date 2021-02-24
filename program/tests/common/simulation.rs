@@ -253,6 +253,8 @@ impl Universe {
                 &self.actors[0].asset_accounts,
                 deposit_amounts,
                 &self.serum_market.as_ref().unwrap().market_key.pubkey(),
+                10_000,
+                15
             )
             .await?;
         self.pool_token_supply = 1_000_000;
