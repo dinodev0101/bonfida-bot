@@ -63,14 +63,14 @@ export async function createPool(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
   serumProgramId: PublicKey,
-  sourceOwnerKey: Account,
+  sourceOwnerKey: PublicKey,
   sourceAssetKeys: Array<PublicKey>,
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
   maxNumberOfAssets: number,
   number_of_markets: Numberu16,
   markets: Array<PublicKey>,
-  payer: Account,
+  payer: PublicKey,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
 
   // Find a valid pool seed
@@ -106,7 +106,7 @@ export async function createPool(
     SYSVAR_RENT_PUBKEY,
     bonfidaBotProgramId,
     poolMintKey,
-    payer.publicKey,
+    payer,
     poolKey,
     [poolSeed],
     maxNumberOfAssets,
@@ -126,7 +126,7 @@ export async function createPool(
     const assetMint = new PublicKey(AccountLayout.decode(assetData).mint);
     assetTxInstructions.push(await createAssociatedTokenAccount(
       SystemProgram.programId,
-      payer.publicKey,
+      payer,
       poolKey,
       assetMint
     ));
@@ -138,12 +138,12 @@ export async function createPool(
   // Create the source owner associated address to receive the pooltokens
   assetTxInstructions.push(await createAssociatedTokenAccount(
     SystemProgram.programId,
-    payer.publicKey,
-    sourceOwnerKey.publicKey,
+    payer,
+    sourceOwnerKey,
     poolMintKey
   ));
   let targetPoolTokenKey = await findAssociatedTokenAddress(
-    sourceOwnerKey.publicKey,
+    sourceOwnerKey,
     poolMintKey
   );
 
@@ -156,7 +156,7 @@ export async function createPool(
     [poolSeed],
     poolAssetKeys,
     targetPoolTokenKey,
-    sourceOwnerKey.publicKey,
+    sourceOwnerKey,
     sourceAssetKeys,
     serumProgramId,
     signalProviderKey,
@@ -177,7 +177,7 @@ export async function deposit(
   sourceAssetKeys: Array<PublicKey>,
   poolTokenAmount: Numberu64,
   poolSeed: Array<Buffer | Uint8Array>,
-  payer: Account,
+  payer: PublicKey,
 ): Promise<TransactionInstruction[]> {
 
   //TODO Collect fees beforehand
@@ -214,7 +214,7 @@ export async function deposit(
     // If nonexistent, create the source owner associated address to receive the pooltokens
     createTargetTxInstructions.push(await createAssociatedTokenAccount(
       SystemProgram.programId,
-      payer.publicKey,
+      payer,
       sourceOwnerKey,
       poolMintKey
     ));

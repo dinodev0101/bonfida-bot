@@ -9,6 +9,7 @@ import {
   TokenAmount,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, AccountLayout } from '@solana/spl-token';
+import { Market, TOKEN_MINTS, MARKETS } from "@project-serum/serum";
 import {
   cancelOrderInstruction,
   createInstruction,
@@ -24,6 +25,8 @@ import {
   Numberu16,
   getMarketData,
   Numberu128,
+  getMidPrice,
+  ASSOCIATED_TOKEN_PROGRAM_ID
 } from './utils';
 import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, PUBKEY_LENGTH, SelfTradeBehavior, unpack_assets, unpack_markets } from './state';
 import bs58 from 'bs58';
@@ -120,14 +123,55 @@ export async function fetchPoolBalances(
 // export async function singleTokenDeposit(
 //   connection: Connection,
 //   bonfidaBotProgramId: PublicKey,
-//   sourceOwnerKey: Account,
-//   sourceAssetKey: PublicKey,
+//   sourceOwner: Account,
+//   sourceTokenKey: PublicKey,
 //   // The amount of source tokens to invest into pool
-//   Amount: Numberu64,
+//   amount: number,
 //   poolSeed: Buffer | Uint8Array,
-//   payer: Account,
+//   payerKey: PublicKey,
 // ): Promise<TransactionInstruction[]> {
   
+//   // Transfer source tokens to USDC
+//   let tokenInfo = await connection.getAccountInfo(sourceTokenKey);
+//   if (!tokenInfo) {
+//     throw 'Source asset account is unavailable';
+//   }
+//   let tokenData = Buffer.from(tokenInfo.data);
+//   const tokenMint = new PublicKey(AccountLayout.decode(tokenData).mint);
+//   let tokenSymbol = TOKEN_MINTS[
+//     TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
+//   ].name;
+//   let pairSymbol = tokenSymbol.concat("USDC");
+
+//   let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf(pairSymbol)];
+//   if (marketInfo.deprecated) {throw "Chosen Market is deprecated"};
+//   let marketData = await getMarketData(connection, marketInfo.address);
+
+//   let [market, midPrice] = await getMidPrice(marketInfo.address);
+//   await market.placeOrder(connection, {
+//     owner: sourceOwner,
+//     payer: payerKey,
+//     side: 'sell',
+//     price: midPrice,
+//     size: amount,
+//     orderType: 'limit',
+//   });
+
+//   let openOrders = await market.findOpenOrdersAccountsForOwner(
+//     connection,
+//     sourceOwner.publicKey
+//   );
+//   openOrders
+
+
+//   await market.settleFunds(
+//     connection,
+//     sourceOwner,
+    
+//   )
+
+   
+
 //   // Fetch Poolasset mints
 //   let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
 //   let array_one = new Uint8Array(1);
