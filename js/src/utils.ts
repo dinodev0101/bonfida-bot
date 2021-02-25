@@ -15,6 +15,8 @@ import {
 import { Schedule } from './state';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { type } from 'os';
+import { SERUM_PROGRAM_ID } from './main';
+import { Market, TOKEN_MINTS } from "@project-serum/serum";
 
 export async function findAssociatedTokenAddress(
   walletAddress: PublicKey,
@@ -62,6 +64,27 @@ export async function getMarketData(connection:Connection, marketKey: PublicKey)
   }
   return marketData;
 }
+
+export const getMidPrice = async (
+  marketAddress: PublicKey
+) : Promise<[Market, number]> => {
+
+  try {
+      const market = await Market.load(
+      connection,
+      marketAddress,
+      {},
+      SERUM_PROGRAM_ID
+    );
+
+    let bids = await market.loadBids(connection);
+    let asks = await market.loadAsks(connection);
+
+    return [market, (bids.getL2(1)[0][0] + asks.getL2(1)[0][0]) / 2];
+  } catch (err) {
+    console.log(`Error getting midPrice for ${marketAddress}`);
+  }
+};
 
 export class Numberu16 extends BN {
   /**
