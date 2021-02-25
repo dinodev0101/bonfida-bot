@@ -11,9 +11,10 @@
   "types": "lib/index.d.ts",
   "scripts": {
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/test.ts",
-    "build": "rollup -c rollup.config.ts",
-    "lint": "npm run pretty && eslint .",
-    "lint:fix": "npm run pretty:fix && eslint . --fix",
+    "build":"tsc",
+    "prepublish": "tsc",
+    "lint": "yarn pretty && eslint .",
+    "lint:fix": "yarn pretty:fix && eslint . --fix",
     "pretty": "prettier --check 'src/*.[jt]s'",
     "pretty:fix": "prettier --write 'src/*.[jt]s'",
     "doc": "yarn typedoc src/index.ts"
