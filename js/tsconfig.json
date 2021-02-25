@@ -14,7 +14,7 @@
       "esModuleInterop": true,
       "allowSyntheticDefaultImports": true,
       "target": "es6",
-      "outDir": "./dist/lib",
+      "outDir": "dist",
       "rootDir": "./src",
       "declaration": true,
       "noImplicitAny": false,
@@ -27,6 +27,6 @@
       "resolveJsonModule": true
     },
     "include": ["src/*"],
-    "exclude": ["src/**/*.test.ts", "**/node_modules"]
+    "exclude": ["src/**/*.test.ts", "**/node_modules", "dist"]
   }
   
