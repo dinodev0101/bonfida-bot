@@ -1,6 +1,6 @@
 {
   "name": "bonfida-bot",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,7 +11,7 @@
   "types": "lib/index.d.ts",
   "scripts": {
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/test.ts",
-    "build":"tsc",
+    "build": "tsc",
     "prepublish": "tsc",
     "lint": "yarn pretty && eslint .",
     "lint:fix": "yarn pretty:fix && eslint . --fix",
