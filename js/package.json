@@ -6,9 +6,8 @@
     "type": "git",
     "url": "https://github.com/bonfida/bonfida-bot"
   },
-  "main": "lib/index.cjs.js",
-  "module": "lib/index.esm.js",
-  "types": "lib/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/test.ts",
     "build": "tsc",
