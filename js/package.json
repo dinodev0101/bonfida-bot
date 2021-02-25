@@ -9,7 +9,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/tesst.ts",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/test.ts",
     "build": "tsc",
     "prepublish": "tsc",
     "lint": "yarn pretty && eslint .",
