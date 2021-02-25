@@ -1,17 +1,23 @@
-use std::{num::{NonZeroU16, NonZeroU64}, str::FromStr};
+use std::{
+    num::{NonZeroU16, NonZeroU64},
+    str::FromStr,
+};
 
 #[cfg(not(feature = "fuzz"))]
-use bonfida_bot::instruction::{
-    cancel_order, create, create_order, deposit, init, redeem, settle_funds,
+use bonfida_bot::{
+    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds},
+    state::{BONFIDA_BNB, BONFIDA_FEE},
 };
-use bonfida_bot::state::{BONFIDA_BNB, BONFIDA_FEE};
 
+use crate::instruction::collect_fees;
 #[cfg(feature = "fuzz")]
-use crate::instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds};
+use crate::{
+    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds},
+    state::{BONFIDA_BNB, BONFIDA_FEE},
+};
 use rand::{distributions::Alphanumeric, Rng};
 use serum_dex::{instruction::SelfTradeBehavior, matching::Side};
 use solana_program::{pubkey::Pubkey, system_program, sysvar};
-use solana_program_test::ProgramTest;
 use solana_sdk::{
     signature::{Keypair, Signer},
     transport::TransportError,
@@ -22,8 +28,8 @@ use spl_token::{instruction::mint_to, state::Mint};
 use super::{
     market::SerumMarket,
     utils::{
-        create_and_get_associated_token_address, mint_bootstrap, wrap_process_transaction, Context,
-        MintInfo, OpenOrderView,
+        create_and_get_associated_token_address, wrap_process_transaction, Context, MintInfo,
+        OpenOrderView,
     },
 };
 pub struct TestPool {
@@ -107,11 +113,12 @@ impl TestPool {
         wrap_process_transaction(&ctx, instructions, vec![])
             .await
             .unwrap();
-        
+
         // Initialize fee accounts
-        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_FEE).unwrap()).await;
-        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_BNB).unwrap()).await;
-        
+        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_FEE).unwrap())
+            .await;
+        self.get_pt_account(ctx, &Pubkey::from_str(BONFIDA_BNB).unwrap())
+            .await;
     }
 
     pub async fn get_pt_account(&self, ctx: &Context, owner: &Pubkey) -> Pubkey {
@@ -159,13 +166,14 @@ impl TestPool {
         accounts
     }
 
-    pub fn get_signal_provider_accounts(
-        &self
-    ) -> Vec<Pubkey> {
-        let mut result = Vec::with_capacity(self.mints.len());;
+    pub fn get_signal_provider_accounts(&self) -> Vec<Pubkey> {
+        let mut result = Vec::with_capacity(self.mints.len());
         for m in self.mints.iter() {
-            result.push(get_associated_token_address(&self.signal_provider.pubkey(), &m.key));
-        };
+            result.push(get_associated_token_address(
+                &self.signal_provider.pubkey(),
+                &m.key,
+            ));
+        }
         result
     }
 
@@ -178,7 +186,7 @@ impl TestPool {
         deposit_amounts: Vec<u64>,
         market: &Pubkey,
         fee_collection_period: u64,
-        fee_ratio: u16
+        fee_ratio: u16,
     ) -> Result<(), TransportError> {
         println!("Deposit amounts length {:#?}", deposit_amounts.len());
         let create_instruction = create(
@@ -315,11 +323,15 @@ impl TestPool {
             coin_asset_index,
         )
         .unwrap();
-        wrap_process_transaction(&ctx, vec![settle_instruction], vec![])
-            .await
+        wrap_process_transaction(&ctx, vec![settle_instruction], vec![]).await
     }
 
-    pub async fn cancel_order(&self, ctx: &Context, serum_market: &SerumMarket, order: &Order) -> Result<(), TransportError> {
+    pub async fn cancel_order(
+        &self,
+        ctx: &Context,
+        serum_market: &SerumMarket,
+        order: &Order,
+    ) -> Result<(), TransportError> {
         let openorder_view =
             OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;
         let cancel_instruction = cancel_order(
@@ -335,8 +347,7 @@ impl TestPool {
             openorder_view.orders[0],
         )
         .unwrap();
-        wrap_process_transaction(&ctx, vec![cancel_instruction], vec![&self.signal_provider])
-            .await
+        wrap_process_transaction(&ctx, vec![cancel_instruction], vec![&self.signal_provider]).await
     }
 
     pub async fn redeem(
@@ -361,14 +372,21 @@ impl TestPool {
             amount,
         )
         .unwrap();
-        wrap_process_transaction(&ctx, vec![redeem_instruction], vec![&source_owner])
-            .await
+        wrap_process_transaction(&ctx, vec![redeem_instruction], vec![&source_owner]).await
     }
 
-    pub async fn collect_fees(
-        &self,
-        ctx: &Context,
-    ) {
+    pub async fn collect_fees(&self, ctx: &Context) -> Result<(), TransportError> {
+        let instruction = collect_fees(
+            &spl_token::id(),
+            &sysvar::clock::id(),
+            &self.program_id,
+            &self.key,
+            &self.mint_key,
+            &get_associated_token_address(&self.signal_provider.pubkey(), &self.mint_key),
+            self.seeds.clone(),
+        )
+        .unwrap();
+        wrap_process_transaction(ctx, vec![instruction], vec![]).await
     }
 }
 

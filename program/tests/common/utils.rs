@@ -343,6 +343,10 @@ pub fn result_err_filter(e: Result<(), TransportError>) -> Result<(), TransportE
     }
 }
 
+pub fn get_element_from_seed<T>(choices: &Vec<T>, seed: u8) -> &T{
+    &choices[(seed & choices.len() as u8) as usize]
+}
+
 // pub fn into_transport_error(e: ProgramError) -> TransportError {
 //     TransportError::TransactionError(TransactionError::InstructionError(0,
 //         match e {

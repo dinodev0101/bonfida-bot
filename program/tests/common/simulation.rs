@@ -1,20 +1,14 @@
-use std::num::{NonZeroU16, NonZeroU64, NonZeroU8};
+use std::num::{NonZeroU16, NonZeroU64};
 
 #[cfg(feature = "fuzz")]
 use arbitrary::{Arbitrary, Unstructured};
 
 use serum_dex::matching::Side;
-use solana_program::{
-    entrypoint::ProgramResult, hash::Hash, instruction::InstructionError,
-    program_error::ProgramError, program_pack::Pack, pubkey::Pubkey,
-};
-use solana_program_test::{BanksClient, ProgramTest};
+use solana_program::{instruction::InstructionError, program_pack::Pack, pubkey::Pubkey};
 use solana_sdk::{
     signature::{Keypair, Signer},
-    transaction::TransactionError,
     transport::TransportError,
 };
-use spl_associated_token_account::get_associated_token_address;
 use spl_token::state::Account;
 
 use super::{
@@ -24,7 +18,7 @@ use super::{
 };
 
 #[cfg(feature = "fuzz")]
-use super::utils::arbitraryNonZeroU8;
+use super::utils::{arbitraryNonZeroU8, get_element_from_seed};
 
 pub struct Actor {
     pub key: Keypair,
@@ -72,7 +66,7 @@ pub enum Intention {
     BuyIn(u8),
     BuyOutPartial(u8),
     BuyOut,
-    Attack,
+    Attack(u32),
 }
 
 pub enum Signal {
@@ -242,8 +236,10 @@ impl Universe {
                 .pool
                 .get_funded_token_accounts(ctx, &actor.key.pubkey())
                 .await;
+            self.known_accounts.extend(actor.asset_accounts.iter());
             actor.pool_token_account =
                 Some(self.pool.get_pt_account(ctx, &actor.key.pubkey()).await);
+            self.known_accounts.push(actor.pool_token_account.unwrap());
         }
         self.pool
             .create(
@@ -254,7 +250,7 @@ impl Universe {
                 deposit_amounts,
                 &self.serum_market.as_ref().unwrap().market_key.pubkey(),
                 10_000,
-                15
+                15,
             )
             .await?;
         self.pool_token_supply = 1_000_000;
@@ -292,6 +288,7 @@ impl Universe {
                     max_qty,
                 )
                 .await;
+            self.known_accounts.push(order.open_orders_account);
             if order_result.is_ok() {
                 self.active_orders.push((cancel_after + self.cycle, order));
             }
@@ -338,7 +335,8 @@ impl Universe {
                         )
                         .unwrap()
                         .amount;
-                        self.pool_token_supply = self.pool_token_supply + actor.pool_token_balance - existing_balance;
+                        self.pool_token_supply =
+                            self.pool_token_supply + actor.pool_token_balance - existing_balance;
                     }
                     result?
                 }
@@ -357,7 +355,7 @@ impl Universe {
                             .await;
                         if result.is_ok() {
                             actor.pool_token_balance = actor.pool_token_balance - actual_amount;
-                            self.pool_token_supply  = self.pool_token_supply - actual_amount;
+                            self.pool_token_supply = self.pool_token_supply - actual_amount;
                         }
                         result?;
                     }
@@ -375,13 +373,148 @@ impl Universe {
                             )
                             .await;
                         if result.is_ok() {
-                            self.pool_token_supply  = self.pool_token_supply - actor.pool_token_balance;
+                            self.pool_token_supply =
+                                self.pool_token_supply - actor.pool_token_balance;
                             actor.pool_token_balance = 0;
                         }
-                        result?;
                     }
                 }
-                Intention::Attack => {}
+                Intention::Attack(seed) => {
+                    let instruction_tag = seed >> 29;
+                    match instruction_tag {
+                        0 => {
+                            let target_pool_token_account =
+                                get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8);
+                            let asset_accounts = &vec![
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 4) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 8) & 0x3f) as u8,
+                                ),
+                            ];
+                            let deposit_amounts = vec![
+                                (((seed >> 12) & 0x3f) as u64) * 100_000,
+                                (((seed >> 16) & 0x3f) as u64) * 100_000,
+                            ];
+                            let result = self
+                                .pool
+                                .create(
+                                    ctx,
+                                    target_pool_token_account,
+                                    &actor.key,
+                                    asset_accounts,
+                                    deposit_amounts,
+                                    &self.serum_market.as_ref().unwrap().market_key.pubkey(),
+                                    700_000,
+                                    15,
+                                )
+                                .await;
+                            result_err_filter(result)?;
+                        }
+                        1 => {
+                            let target_pool_token_account =
+                                get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8);
+                            let amount = (((seed >> 4) & 0x3f) as u64) * 100_000;
+                            let asset_accounts = &vec![
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 8) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 12) & 0x3f) as u8,
+                                ),
+                            ];
+
+                            let result = self.pool.deposit(
+                                ctx,
+                                amount,
+                                target_pool_token_account,
+                                &actor.key,
+                                asset_accounts,
+                            ).await;
+                            result_err_filter(result)?;
+                        }
+                        2 => {
+                            let order = Order {
+                                open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
+                            };
+                            let side = match seed >> 31 {
+                                0 => {Side::Ask}
+                                1 => {Side::Bid}
+                                _ => {unreachable!()}
+                            };
+                            let result = self.pool.create_new_order(
+                                ctx, 
+                                self.serum_market.as_ref().unwrap(), 
+                                ((seed >> 16) & 0x3f) as u64, 
+                                ((seed >> 20) & 0x3f) as u64, 
+                                &order, 
+                                side, 
+                                NonZeroU64::new((((seed >> 24) & 0x3f) << 4) as u64 + 1).unwrap(), 
+                                NonZeroU16::new((((seed >> 28) & 0x3f) << 4) as u16 + 1).unwrap()
+                            ).await;
+                            result_err_filter(result)?;
+                        }
+                        3 => {
+                            let order = Order {
+                                open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
+                            };
+                            let result = self.pool.settle(
+                                ctx,
+                                self.serum_market.as_ref().unwrap(),
+                                ((seed >> 4) & 0x3f) as u64,
+                                ((seed >> 8) & 0x3f) as u64,
+                                &order
+                            ).await;
+                            result_err_filter(result)?;
+                        }
+                        4 => {
+                            let order = Order {
+                                open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
+                            };
+                            let result = self.pool.cancel_order(
+                                ctx, 
+                                self.serum_market.as_ref().unwrap(), 
+                                &order
+                            ).await;
+                            result_err_filter(result)?;
+                        }
+                        5 => {
+                            let target_pool_token_account =
+                                get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8);
+                            let asset_accounts = &vec![
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 4) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 8) & 0x3f) as u8,
+                                ),
+                            ];
+                            let result = self.pool.redeem(
+                                ctx, 
+                                (((seed >> 12) & 0x3f) << 4) as u64, 
+                                &actor.key, 
+                                target_pool_token_account, 
+                                asset_accounts
+                            ).await;
+                            result_err_filter(result)?;
+                        }
+                        6 => {
+                            let result = self.pool.collect_fees(ctx).await;
+                            result_err_filter(result)?;
+                        }
+                        7 => {}
+                        _ => {
+                            unreachable!()
+                        }
+                    }
+                }
             }
             if self.pool_token_supply == 0 {
                 println!("Pool is empty and has been deleted");

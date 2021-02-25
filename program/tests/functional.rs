@@ -104,6 +104,7 @@ async fn test_bonfida_bot() {
 
     let deposit_amounts = vec![3_238_385, 4_000_000, 1_000_001, 20_000_000];
 
+
     // Initialize all asset mints
 
     // Setup The Serum Dex market
