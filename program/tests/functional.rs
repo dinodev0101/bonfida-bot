@@ -254,6 +254,8 @@ async fn test_bonfida_bot() {
     .await
     .unwrap();
 
+    pool.collect_fees(&ctx).await.unwrap();
+
     print_pool_data(&pool.key, &ctx.test_state.banks_client)
         .await
         .unwrap();

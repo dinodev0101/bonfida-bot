@@ -14,11 +14,11 @@ use spl_token::state::Account;
 use super::{
     market::SerumMarket,
     pool::{Order, TestPool},
-    utils::{clone_keypair, into_transport_error, result_err_filter, Context, MintInfo},
+    utils::{clone_keypair, into_transport_error, result_err_filter, get_element_from_seed, Context, MintInfo},
 };
 
 #[cfg(feature = "fuzz")]
-use super::utils::{arbitraryNonZeroU8, get_element_from_seed};
+use super::utils::{arbitraryNonZeroU8};
 
 pub struct Actor {
     pub key: Keypair,
@@ -249,7 +249,7 @@ impl Universe {
                 &self.actors[0].asset_accounts,
                 deposit_amounts,
                 &self.serum_market.as_ref().unwrap().market_key.pubkey(),
-                10_000,
+                604800,
                 15,
             )
             .await?;
@@ -310,6 +310,7 @@ impl Universe {
             match turn.actor_intentions[i] {
                 Intention::Idle => {}
                 Intention::BuyIn(amount) => {
+                    println!("Buying in");
                     let desired_amount = (amount as u64) * 100_000;
                     let result = self
                         .pool
@@ -341,6 +342,7 @@ impl Universe {
                     result?
                 }
                 Intention::BuyOutPartial(amount) => {
+                    println!("Buying out partially");
                     let actual_amount = actor.pool_token_balance.min((amount as u64) * 100_000);
                     if actual_amount != 0 {
                         let result = self
@@ -361,6 +363,7 @@ impl Universe {
                     }
                 }
                 Intention::BuyOut => {
+                    println!("Buying out");
                     if actor.pool_token_balance != 0 {
                         let result = self
                             .pool
@@ -380,6 +383,7 @@ impl Universe {
                     }
                 }
                 Intention::Attack(seed) => {
+                    println!("Attacking");
                     let instruction_tag = seed >> 29;
                     match instruction_tag {
                         0 => {
@@ -450,8 +454,8 @@ impl Universe {
                             let result = self.pool.create_new_order(
                                 ctx, 
                                 self.serum_market.as_ref().unwrap(), 
-                                ((seed >> 16) & 0x3f) as u64, 
-                                ((seed >> 20) & 0x3f) as u64, 
+                                ((seed >> 16) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
+                                ((seed >> 20) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
                                 &order, 
                                 side, 
                                 NonZeroU64::new((((seed >> 24) & 0x3f) << 4) as u64 + 1).unwrap(), 
@@ -466,8 +470,8 @@ impl Universe {
                             let result = self.pool.settle(
                                 ctx,
                                 self.serum_market.as_ref().unwrap(),
-                                ((seed >> 4) & 0x3f) as u64,
-                                ((seed >> 8) & 0x3f) as u64,
+                                ((seed >> 4) & 0x3f) as u64 % (self.pool.mints.len() as u64),
+                                ((seed >> 8) & 0x3f) as u64 % (self.pool.mints.len() as u64),
                                 &order
                             ).await;
                             result_err_filter(result)?;

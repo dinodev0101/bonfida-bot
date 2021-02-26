@@ -5,14 +5,13 @@ use std::{
 
 #[cfg(not(feature = "fuzz"))]
 use bonfida_bot::{
-    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds},
+    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds, collect_fees},
     state::{BONFIDA_BNB, BONFIDA_FEE},
 };
 
-use crate::instruction::collect_fees;
 #[cfg(feature = "fuzz")]
 use crate::{
-    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds},
+    instruction::{cancel_order, create, create_order, deposit, init, redeem, settle_funds, collect_fees},
     state::{BONFIDA_BNB, BONFIDA_FEE},
 };
 use rand::{distributions::Alphanumeric, Rng};
@@ -333,7 +332,7 @@ impl TestPool {
         order: &Order,
     ) -> Result<(), TransportError> {
         let openorder_view =
-            OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;
+            OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await?;
         let cancel_instruction = cancel_order(
             &self.program_id,
             &self.signal_provider.pubkey(),
@@ -386,7 +385,7 @@ impl TestPool {
             self.seeds.clone(),
         )
         .unwrap();
-        wrap_process_transaction(ctx, vec![instruction], vec![]).await
+        wrap_process_transaction(&ctx, vec![instruction], vec![]).await
     }
 }
 

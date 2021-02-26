@@ -145,7 +145,10 @@ pub struct OpenOrderView {
 }
 
 impl OpenOrderView {
-    pub fn parse(data: Vec<u8>) -> Self {
+    pub fn parse(data: Vec<u8>) -> Result<Self, TransportError> {
+        if data.len() != 3228 {
+            return Err(TransportError::TransactionError(TransactionError::InstructionError(0, InstructionError::InvalidAccountData)));
+        }
         let stripped = &data[13..];
         let market = Pubkey::new(&stripped[..32]);
         let owner = Pubkey::new(&stripped[32..64]);
@@ -159,7 +162,7 @@ impl OpenOrderView {
                 stripped[(128 + 16 * i)..(144 + 16 * i)].try_into().unwrap(),
             ));
         }
-        Self {
+        Ok(Self {
             market,
             owner,
             native_coin_free,
@@ -167,10 +170,10 @@ impl OpenOrderView {
             native_pc_free,
             native_pc_total,
             orders,
-        }
+        })
     }
 
-    pub async fn get(key: Pubkey, banks_client: &BanksClient) -> Self {
+    pub async fn get(key: Pubkey, banks_client: &BanksClient) -> Result<Self, TransportError> {
         Self::parse(
             banks_client
                 .to_owned()
@@ -344,7 +347,7 @@ pub fn result_err_filter(e: Result<(), TransportError>) -> Result<(), TransportE
 }
 
 pub fn get_element_from_seed<T>(choices: &Vec<T>, seed: u8) -> &T{
-    &choices[(seed & choices.len() as u8) as usize]
+    &choices[(seed % choices.len() as u8) as usize]
 }
 
 // pub fn into_transport_error(e: ProgramError) -> TransportError {

@@ -19,19 +19,7 @@ use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
 };
-use solana_program::{
-    account_info::{next_account_info, AccountInfo},
-    clock::Clock,
-    entrypoint::ProgramResult,
-    msg,
-    program::{invoke, invoke_signed},
-    program_error::ProgramError,
-    program_pack::{IsInitialized, Pack},
-    pubkey::Pubkey,
-    rent::Rent,
-    system_instruction::create_account,
-    sysvar::Sysvar,
-};
+use solana_program::{account_info::{next_account_info, AccountInfo}, clock::Clock, entrypoint::ProgramResult, log, msg, program::{invoke, invoke_signed}, program_error::ProgramError, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::Sysvar};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::{
     instruction::{burn, initialize_mint, mint_to, transfer},
@@ -197,7 +185,7 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
         if fee_collection_period < 604800 {
-            msg!("Fee collection period should be longer than a.");
+            msg!("Fee collection period should be longer than a week.");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -1127,6 +1115,7 @@ impl Processor {
         accounts: &[AccountInfo],
         pool_seed: [u8; 32],
     ) -> ProgramResult {
+        msg!("CHECK 0");
         let accounts_iter = &mut accounts.iter();
         let spl_token_account = next_account_info(accounts_iter)?;
         let clock_sysvar_account = next_account_info(accounts_iter)?;
@@ -1136,6 +1125,9 @@ impl Processor {
         let signal_provider_pt_account = next_account_info(accounts_iter)?;
         let bonfida_fee_pt_account = next_account_info(accounts_iter)?;
         let bonfida_bnb_pt_account = next_account_info(accounts_iter)?;
+
+        msg!("CHECK 1");
+        log::sol_log_compute_units();
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
 
@@ -1169,11 +1161,45 @@ impl Processor {
             msg!("The provided bonfida buy and burn pool token account is invalid.");
             return Err(ProgramError::InvalidArgument);
         }
+                
+
+
+
+
+        msg!("CHECK 2");
+        log::sol_log_compute_units();
 
         let current_timestamp =
             Clock::from_account_info(clock_sysvar_account)?.unix_timestamp as u64;
         let fee_cycles_to_collect = (current_timestamp - pool_header.last_fee_collection_timestamp)
             / pool_header.fee_collection_period;
+
+        msg!("CHECK 3");
+        log::sol_log_compute_units();
+
+        msg!("CHECK 4");
+        log::sol_log_compute_units();
+        
+        
+
+        msg!("CHECK 5.0.0.0");
+        log::sol_log_compute_units();
+        let data = &mint_account.data;
+        msg!("CHECK 5.0.0.1");
+        log::sol_log_compute_units();
+        let borrowed_data = data.borrow();
+        msg!("CHECK 5.0.1");
+        log::sol_log_compute_units();
+        let unpacked_mint_result = Mint::unpack(&borrowed_data);
+
+        msg!("CHECK 5.1");
+        log::sol_log_compute_units();
+        let unpacked_mint = unpacked_mint_result?;
+        msg!("CHECK 5.2");
+        log::sol_log_compute_units();
+        let total_pooltokens = unpacked_mint.supply as u128;
+        msg!("CHECK 6");
+        log::sol_log_compute_units();
 
         // 2**-16 = 1.52587890625e-5_f32
         let collect_ratio_u16 = ((pool_header.fee_ratio as f32 * 1.52587890625e-5_f32).powi(
@@ -1181,12 +1207,18 @@ impl Processor {
                 .try_into()
                 .map_err(|_| BonfidaBotError::Overflow)?,
         ) * 65536.) as u16;
+
         let collect_ratio_reciprocal = (!collect_ratio_u16) as u128;
         let collect_ratio = collect_ratio_u16 as u128;
         pool_header.last_fee_collection_timestamp +=
             fee_cycles_to_collect * pool_header.fee_collection_period;
-        let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply as u128;
+
+
         let tokens_to_mint = (collect_ratio * total_pooltokens / collect_ratio_reciprocal) as u64;
+
+
+
+        msg!("CHECK 7");
 
         // Mint the required amount of pooltokens to the signal provider
         let mint_to_sp_instruction = mint_to(
@@ -1208,6 +1240,9 @@ impl Processor {
             ],
             &[&[&pool_seed]],
         )?;
+
+
+        msg!("CHECK 8");
 
         // Mint the required amount of pooltokens to the bonfida fee account
         let mint_to_bonfida_fee_instruction = mint_to(
@@ -1251,10 +1286,16 @@ impl Processor {
             &[&[&pool_seed]],
         )?;
 
+
+        msg!("CHECK 9");
+
         PoolHeader::pack(
             pool_header,
             &mut pool_account.data.borrow_mut()[..PoolHeader::LEN],
         )?;
+
+
+        msg!("CHECK 10");
 
         Ok(())
     }
