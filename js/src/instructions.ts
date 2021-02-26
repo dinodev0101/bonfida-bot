@@ -1,5 +1,4 @@
-import { PublicKey, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
-import { PublicKeyInput } from 'crypto';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { OrderSide, OrderType, SelfTradeBehavior } from './state';
 import { Numberu128, Numberu16, Numberu32, Numberu64 } from './utils';
 
@@ -18,7 +17,7 @@ export function initInstruction(
   poolKey: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
   maxNumberOfAssets: number,
-  number_of_markets: Numberu16
+  number_of_markets: Numberu16,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([0])),
@@ -82,7 +81,7 @@ export function createInstruction(
   serumProgramId: PublicKey,
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
-  markets: Array<PublicKey>
+  markets: Array<PublicKey>,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([1])),
@@ -90,15 +89,15 @@ export function createInstruction(
     serumProgramId.toBuffer(),
     signalProviderKey.toBuffer(),
     // @ts-ignore
-    (new Numberu16(markets.length)).toBuffer()
+    new Numberu16(markets.length).toBuffer(),
   ];
   for (var market of markets) {
     // @ts-ignore
-    buffers.push(market.toBuffer())
+    buffers.push(market.toBuffer());
   }
   for (var amount of depositAmounts) {
     // @ts-ignore
-    buffers.push(new Numberu64(amount).toBuffer())
+    buffers.push(new Numberu64(amount).toBuffer());
   }
 
   const data = Buffer.concat(buffers);
@@ -129,19 +128,19 @@ export function createInstruction(
       pubkey: poolAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
   keys.push({
     pubkey: sourceOwnerKey,
     isSigner: true,
     isWritable: false,
-  })
+  });
   for (var sourceAsset of sourceAssetKeys) {
     keys.push({
       pubkey: sourceAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
 
   return new TransactionInstruction({
@@ -167,7 +166,7 @@ export function depositInstruction(
     Buffer.from(Int8Array.from([2])),
     Buffer.concat(poolSeed),
     // @ts-ignore
-    poolTokenAmount.toBuffer()
+    poolTokenAmount.toBuffer(),
   ];
 
   const data = Buffer.concat(buffers);
@@ -198,19 +197,19 @@ export function depositInstruction(
       pubkey: poolAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
   keys.push({
     pubkey: sourceOwnerKey,
     isSigner: true,
     isWritable: false,
-  })
+  });
   for (var sourceAsset of sourceAssetKeys) {
     keys.push({
       pubkey: sourceAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
 
   return new TransactionInstruction({
@@ -246,7 +245,7 @@ export function createOrderInstruction(
   maxQuantity: Numberu16,
   orderType: OrderType,
   clientId: Numberu64,
-  selfTradeBehavior: SelfTradeBehavior
+  selfTradeBehavior: SelfTradeBehavior,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([3])),
@@ -354,7 +353,7 @@ export function cancelOrderInstruction(
     Buffer.from(Int8Array.from([4])),
     Buffer.concat(poolSeed),
     Buffer.from(Int8Array.from([side])),
-    orderId.toBuffer()
+    orderId.toBuffer(),
   ];
   const data = Buffer.concat(buffers);
 
@@ -512,7 +511,7 @@ export function redeemInstruction(
     Buffer.from(Int8Array.from([6])),
     Buffer.concat(poolSeed),
     // @ts-ignore
-    new Numberu64(poolTokenAmount).toBuffer()
+    new Numberu64(poolTokenAmount).toBuffer(),
   ];
 
   const data = Buffer.concat(buffers);
@@ -548,14 +547,14 @@ export function redeemInstruction(
       pubkey: poolAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
   for (var targetAsset of targetAssetKeys) {
     keys.push({
       pubkey: targetAsset,
       isSigner: false,
       isWritable: true,
-    })
+    });
   }
 
   return new TransactionInstruction({

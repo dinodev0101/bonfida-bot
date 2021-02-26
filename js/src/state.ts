@@ -1,11 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
-import { Numberu16, Numberu64 } from './utils';
-
+import { Numberu16 } from './utils';
 
 // Serum analog types
 export enum OrderSide {
   Bid,
-  Ask
+  Ask,
 }
 export enum OrderType {
   Limit,
@@ -29,7 +28,7 @@ export enum PoolStatusID {
   Unlocked,
   Locked,
   PendingOrder,
-  LockedPendingOrder
+  LockedPendingOrder,
 }
 
 export type PoolStatus = [PoolStatusID, number];
@@ -47,7 +46,7 @@ export class PoolHeader {
     seed: Uint8Array,
     signalProvider: PublicKey,
     status: PoolStatus,
-    numberOfMarkets: Numberu16
+    numberOfMarkets: Numberu16,
   ) {
     this.serumProgramId = serumProgramId;
     this.seed = seed;
@@ -57,24 +56,24 @@ export class PoolHeader {
   }
 
   static match_status(status_byte: Buffer): PoolStatus {
-    let sByte = status_byte.readInt8();
-    switch(sByte >> 6) {
+    let sByte = status_byte.readInt8(0);
+    switch (sByte >> 6) {
       case 0:
-        return [PoolStatusID.Unlocked, 0]
+        return [PoolStatusID.Unlocked, 0];
       case 1:
         return [
           PoolStatusID.PendingOrder,
-          (sByte & STATUS_PENDING_ORDER_MASK) + 1
-        ]
+          (sByte & STATUS_PENDING_ORDER_MASK) + 1,
+        ];
       case 2:
-        return [PoolStatusID.Locked, 0]
-      case 3: 
+        return [PoolStatusID.Locked, 0];
+      case 3:
         return [
           PoolStatusID.LockedPendingOrder,
-          (sByte & STATUS_PENDING_ORDER_MASK) + 1
-        ]
+          (sByte & STATUS_PENDING_ORDER_MASK) + 1,
+        ];
       default:
-        throw "Pool status byte could not be parsed."
+        throw 'Pool status byte could not be parsed.';
     }
   }
 
@@ -85,7 +84,13 @@ export class PoolHeader {
     const status: PoolStatus = PoolHeader.match_status(buf.slice(96, 97));
     // @ts-ignore
     const numberOfMarkets = Numberu16.fromBuffer(buf.slice(97, 99));
-    return new PoolHeader(serumProgramId, seed, signalProvider, status, numberOfMarkets);
+    return new PoolHeader(
+      serumProgramId,
+      seed,
+      signalProvider,
+      status,
+      numberOfMarkets,
+    );
   }
 }
 
@@ -98,9 +103,7 @@ export class PoolAsset {
   }
 
   public toBuffer(): Buffer {
-    return Buffer.concat([
-      this.mintAddress.toBuffer(),
-    ]);
+    return Buffer.concat([this.mintAddress.toBuffer()]);
   }
 
   static fromBuffer(buf: Buffer): PoolAsset {
@@ -115,9 +118,14 @@ export function unpack_assets(input: Buffer): Array<PoolAsset> {
   let offset = 0;
   let zeroArray: Int8Array = new Int8Array(32);
   zeroArray.fill(0);
-  for (let i=0; i<numberOfAssets; i++) {
-    let asset = PoolAsset.fromBuffer(input.slice(offset, offset + PoolAsset.LEN));
-    if (asset.mintAddress.toString() != (new PublicKey(Buffer.from(zeroArray))).toString()) {
+  for (let i = 0; i < numberOfAssets; i++) {
+    let asset = PoolAsset.fromBuffer(
+      input.slice(offset, offset + PoolAsset.LEN),
+    );
+    if (
+      asset.mintAddress.toString() !=
+      new PublicKey(Buffer.from(zeroArray)).toString()
+    ) {
       output.push(asset);
     }
     offset += PoolAsset.LEN;
@@ -125,10 +133,13 @@ export function unpack_assets(input: Buffer): Array<PoolAsset> {
   return output;
 }
 
-export function unpack_markets(input: Buffer, numberOfMarkets: Numberu16): Array<PublicKey> {
+export function unpack_markets(
+  input: Buffer,
+  numberOfMarkets: Numberu16,
+): Array<PublicKey> {
   let markets: Array<PublicKey> = new Array();
   let offset = 0;
-  for (var i=0; i< new Number(numberOfMarkets); i++) {
+  for (var i = 0; i < new Number(numberOfMarkets); i++) {
     markets.push(new PublicKey(input.slice(offset, offset + 32)));
     offset += 32;
   }

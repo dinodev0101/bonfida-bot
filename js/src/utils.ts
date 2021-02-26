@@ -12,12 +12,9 @@ import {
   TransactionInstruction,
   SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
-import { Schedule } from './state';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { type } from 'os';
 import { SERUM_PROGRAM_ID } from './main';
-import { Market, TOKEN_MINTS } from "@project-serum/serum";
-import { connect } from 'http2';
+import { Market, TOKEN_MINTS } from '@project-serum/serum';
 
 export async function findAssociatedTokenAddress(
   walletAddress: PublicKey,
@@ -36,18 +33,21 @@ export async function findAssociatedTokenAddress(
 }
 
 export type MarketData = {
-  address: PublicKey,
-  coinMintKey: PublicKey,
-  coinVaultKey: PublicKey,
-  coinLotSize: Numberu64,
-  pcMintKey: PublicKey,
-  pcVaultKey: PublicKey,
-  pcLotSize: Numberu64,
-  vaultSignerNonce: Numberu64,
-  reqQueueKey: PublicKey,
-}
+  address: PublicKey;
+  coinMintKey: PublicKey;
+  coinVaultKey: PublicKey;
+  coinLotSize: Numberu64;
+  pcMintKey: PublicKey;
+  pcVaultKey: PublicKey;
+  pcLotSize: Numberu64;
+  vaultSignerNonce: Numberu64;
+  reqQueueKey: PublicKey;
+};
 
-export async function getMarketData(connection:Connection, marketKey: PublicKey): Promise<MarketData> {
+export async function getMarketData(
+  connection: Connection,
+  marketKey: PublicKey,
+): Promise<MarketData> {
   let marketAccountInfo = await connection.getAccountInfo(marketKey);
   if (!marketAccountInfo) {
     throw 'Market account is unavailable';
@@ -56,26 +56,30 @@ export async function getMarketData(connection:Connection, marketKey: PublicKey)
     adress: marketKey,
     coinMintKey: new PublicKey(marketAccountInfo.data.slice(53, 85)),
     coinVaultKey: new PublicKey(marketAccountInfo.data.slice(117, 149)),
-    coinLotSize: new Numberu64(marketAccountInfo.data.slice(349, 357).reverse()),
+    coinLotSize: new Numberu64(
+      marketAccountInfo.data.slice(349, 357).reverse(),
+    ),
     pcMintKey: new PublicKey(marketAccountInfo.data.slice(85, 117)),
     pcVaultKey: new PublicKey(marketAccountInfo.data.slice(165, 197)),
     pcLotSize: new Numberu64(marketAccountInfo.data.slice(357, 365).reverse()),
-    vaultSignerNonce: new Numberu64(marketAccountInfo.data.slice(45, 53).reverse()),
+    vaultSignerNonce: new Numberu64(
+      marketAccountInfo.data.slice(45, 53).reverse(),
+    ),
     reqQueueKey: new PublicKey(marketAccountInfo.data.slice(221, 253)),
-  }
+  };
   return marketData;
 }
 
 export const getMidPrice = async (
   connection: Connection,
-  marketAddress: PublicKey
-) : Promise<[Market, number]> => {
+  marketAddress: PublicKey,
+): Promise<[Market, number]> => {
   try {
-      const market = await Market.load(
+    const market = await Market.load(
       connection,
       marketAddress,
       {},
-      SERUM_PROGRAM_ID
+      SERUM_PROGRAM_ID,
     );
 
     let bids = await market.loadBids(connection);
@@ -214,8 +218,6 @@ export class Numberu128 extends BN {
   }
 }
 
-
-
 export const sleep = (ms: number): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, ms));
 };
@@ -238,7 +240,6 @@ export const signAndSendTransactionInstructions = async (
     preflightCommitment: 'single',
   });
 };
-
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID: PublicKey = new PublicKey(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',

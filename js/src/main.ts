@@ -26,12 +26,20 @@ import {
   getMarketData,
   Numberu128,
 } from './utils';
-import { OrderSide, OrderType, PoolAsset, PoolHeader, SelfTradeBehavior, unpack_assets, PUBKEY_LENGTH, unpack_markets } from './state';
+import {
+  OrderSide,
+  OrderType,
+  PoolAsset,
+  PoolHeader,
+  SelfTradeBehavior,
+  unpack_assets,
+  PUBKEY_LENGTH,
+  unpack_markets,
+} from './state';
 import bs58 from 'bs58';
-import * as crypto from "crypto";
+import * as crypto from 'crypto';
 import { open } from 'fs/promises';
 import { OpenOrders } from '@project-serum/serum';
-
 
 /////////////////////////////////
 
@@ -41,23 +49,22 @@ export const ENDPOINTS = {
 };
 
 export const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
-  "GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB",
+  'GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB',
 );
 
 export const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
-  "EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o",
+  'EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o',
 );
 
 export const FIDA_KEY: PublicKey = new PublicKey(
-  "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp",
+  'EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp',
 );
 
 export const PUBLIC_POOLS_SEEDS = [
-  new PublicKey("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa"),
+  new PublicKey('5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa'),
 ];
 
 /////////////////////////////////
-
 
 export async function createPool(
   connection: Connection,
@@ -72,7 +79,6 @@ export async function createPool(
   markets: Array<PublicKey>,
   payer: PublicKey,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
-
   // Find a valid pool seed
   let poolSeed: Uint8Array;
   let poolKey: PublicKey;
@@ -87,17 +93,22 @@ export async function createPool(
     );
     poolSeed[31] = bump;
     try {
-      await PublicKey.createProgramAddress([poolSeed, array_one], bonfidaBotProgramId);
+      await PublicKey.createProgramAddress(
+        [poolSeed, array_one],
+        bonfidaBotProgramId,
+      );
       break;
     } catch (e) {
       continue;
     }
   }
-  let poolMintKey = await PublicKey.createProgramAddress([poolSeed, array_one], bonfidaBotProgramId);
+  let poolMintKey = await PublicKey.createProgramAddress(
+    [poolSeed, array_one],
+    bonfidaBotProgramId,
+  );
   console.log('Pool seed: ', bs58.encode(poolSeed));
   console.log('Pool key: ', poolKey.toString());
   console.log('Mint key: ', poolMintKey.toString());
-
 
   // Initialize the pool
   let initTxInstruction = initInstruction(
@@ -110,41 +121,41 @@ export async function createPool(
     poolKey,
     [poolSeed],
     maxNumberOfAssets,
-    number_of_markets
+    number_of_markets,
   );
 
   // Create the pool asset accounts
   let poolAssetKeys: PublicKey[] = new Array();
   let assetTxInstructions: TransactionInstruction[] = new Array();
   for (var sourceAssetKey of sourceAssetKeys) {
-
     let assetInfo = await connection.getAccountInfo(sourceAssetKey);
     if (!assetInfo) {
       throw 'Source asset account is unavailable';
     }
     let assetData = Buffer.from(assetInfo.data);
     const assetMint = new PublicKey(AccountLayout.decode(assetData).mint);
-    assetTxInstructions.push(await createAssociatedTokenAccount(
-      SystemProgram.programId,
-      payer,
-      poolKey,
-      assetMint
-    ));
-    poolAssetKeys.push(await findAssociatedTokenAddress(
-      poolKey,
-      assetMint
-    ));
+    assetTxInstructions.push(
+      await createAssociatedTokenAccount(
+        SystemProgram.programId,
+        payer,
+        poolKey,
+        assetMint,
+      ),
+    );
+    poolAssetKeys.push(await findAssociatedTokenAddress(poolKey, assetMint));
   }
   // Create the source owner associated address to receive the pooltokens
-  assetTxInstructions.push(await createAssociatedTokenAccount(
-    SystemProgram.programId,
-    payer,
-    sourceOwnerKey,
-    poolMintKey
-  ));
+  assetTxInstructions.push(
+    await createAssociatedTokenAccount(
+      SystemProgram.programId,
+      payer,
+      sourceOwnerKey,
+      poolMintKey,
+    ),
+  );
   let targetPoolTokenKey = await findAssociatedTokenAddress(
     sourceOwnerKey,
-    poolMintKey
+    poolMintKey,
   );
 
   // Create the pool
@@ -161,14 +172,13 @@ export async function createPool(
     serumProgramId,
     signalProviderKey,
     depositAmounts,
-    markets
+    markets,
   );
   let txInstructions = [initTxInstruction].concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
 
   return [poolSeed, txInstructions];
 }
-
 
 export async function deposit(
   connection: Connection,
@@ -179,14 +189,19 @@ export async function deposit(
   poolSeed: Array<Buffer | Uint8Array>,
   payer: PublicKey,
 ): Promise<TransactionInstruction[]> {
-
   //TODO Collect fees beforehand
 
   // Find the pool key and mint key
-  let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress(
+    poolSeed,
+    bonfidaBotProgramId,
+  );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
-  let poolMintKey = await PublicKey.createProgramAddress(poolSeed.concat(array_one), bonfidaBotProgramId);
+  let poolMintKey = await PublicKey.createProgramAddress(
+    poolSeed.concat(array_one),
+    bonfidaBotProgramId,
+  );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
@@ -195,7 +210,9 @@ export async function deposit(
   let poolData = poolInfo.data;
   let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
   let poolAssets: Array<PoolAsset> = unpack_assets(
-    poolData.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH)
+    poolData.slice(
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
   );
 
   let poolAssetKeys: Array<PublicKey> = [];
@@ -206,18 +223,20 @@ export async function deposit(
 
   let targetPoolTokenKey = await findAssociatedTokenAddress(
     sourceOwnerKey,
-    poolMintKey
+    poolMintKey,
   );
   let createTargetTxInstructions: TransactionInstruction[] = [];
   let targetInfo = await connection.getAccountInfo(targetPoolTokenKey);
   if (Object.is(targetInfo, null)) {
     // If nonexistent, create the source owner associated address to receive the pooltokens
-    createTargetTxInstructions.push(await createAssociatedTokenAccount(
-      SystemProgram.programId,
-      payer,
-      sourceOwnerKey,
-      poolMintKey
-    ));
+    createTargetTxInstructions.push(
+      await createAssociatedTokenAccount(
+        SystemProgram.programId,
+        payer,
+        sourceOwnerKey,
+        poolMintKey,
+      ),
+    );
   }
 
   let depositTxInstruction = depositInstruction(
@@ -230,9 +249,9 @@ export async function deposit(
     sourceOwnerKey,
     sourceAssetKeys,
     poolSeed,
-    poolTokenAmount
-  )
-  return createTargetTxInstructions.concat(depositTxInstruction)
+    poolTokenAmount,
+  );
+  return createTargetTxInstructions.concat(depositTxInstruction);
 }
 
 export async function createOrder(
@@ -248,16 +267,21 @@ export async function createOrder(
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior,
   srmReferrerKey: PublicKey | null,
-  payerKey: PublicKey
+  payerKey: PublicKey,
 ): Promise<[Account, TransactionInstruction[]]> {
   // Find the pool key
-  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress(
+    [poolSeed],
+    bonfidaBotProgramId,
+  );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
-  let poolHeader = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN));
+  let poolHeader = PoolHeader.fromBuffer(
+    poolInfo.data.slice(0, PoolHeader.LEN),
+  );
 
   let marketData = await getMarketData(connection, market);
   let sourceMintKey: PublicKey;
@@ -271,27 +295,44 @@ export async function createOrder(
   }
   console.log('Market key: ', market.toString());
 
-  let authorizedMarkets = unpack_markets(poolInfo.data.slice(
-    PoolHeader.LEN, PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH
-  ), poolHeader.numberOfMarkets);
-  let marketIndex = authorizedMarkets.map(m => {return m.toString()}).indexOf(market.toString());
+  let authorizedMarkets = unpack_markets(
+    poolInfo.data.slice(
+      PoolHeader.LEN,
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
+    poolHeader.numberOfMarkets,
+  );
+  let marketIndex = authorizedMarkets
+    .map(m => {
+      return m.toString();
+    })
+    .indexOf(market.toString());
 
-  let poolAssets = unpack_assets(poolInfo.data.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH));
-  // @ts-ignore
-  let sourcePoolAssetIndex = new Numberu64(poolAssets
-    .map(a => { return a.mintAddress.toString() })
-    .indexOf(sourceMintKey.toString())
+  let poolAssets = unpack_assets(
+    poolInfo.data.slice(
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
+  );
+
+  let sourcePoolAssetIndex = new Numberu64(
+    // @ts-ignore
+    poolAssets
+      .map(a => {
+        return a.mintAddress.toString();
+      })
+      .indexOf(sourceMintKey.toString()),
   );
   let sourcePoolAssetKey = await findAssociatedTokenAddress(
     poolKey,
-    sourceMintKey
+    sourceMintKey,
   );
 
   // @ts-ignore
   let targetPoolAssetIndex = poolAssets
-    .map(a => { return a.mintAddress.toString() })
+    .map(a => {
+      return a.mintAddress.toString();
+    })
     .indexOf(targetMintKey.toString());
-    
 
   let createTargetAssetInstruction = undefined;
   if (targetPoolAssetIndex == -1) {
@@ -300,7 +341,7 @@ export async function createOrder(
       SystemProgram.programId,
       payerKey,
       poolKey,
-      targetMintKey
+      targetMintKey,
     );
     targetPoolAssetIndex = poolAssets.length;
   }
@@ -314,11 +355,12 @@ export async function createOrder(
     newAccountPubkey: openOrderKey,
     lamports: rent,
     space: 3228, //TODO get rid of the magic numbers
-    programId: serumProgramId
+    programId: serumProgramId,
   };
-  let createOpenOrderAccountInstruction = SystemProgram.createAccount(createAccountParams);
+  let createOpenOrderAccountInstruction = SystemProgram.createAccount(
+    createAccountParams,
+  );
   console.log('Open Order key: ', openOrderKey.toString());
-
 
   let createOrderTxInstruction = createOrderInstruction(
     bonfidaBotProgramId,
@@ -350,14 +392,15 @@ export async function createOrder(
     clientId,
     selfTradeBehavior,
   );
-  
-  let instructions = [createOpenOrderAccountInstruction,
-    createOrderTxInstruction
+
+  let instructions = [
+    createOpenOrderAccountInstruction,
+    createOrderTxInstruction,
   ];
   if (!!createTargetAssetInstruction) {
     instructions.unshift(createTargetAssetInstruction);
   }
-  return [openOrderAccount, instructions]
+  return [openOrderAccount, instructions];
 }
 
 export async function settleFunds(
@@ -369,44 +412,60 @@ export async function settleFunds(
   openOrdersKey: PublicKey,
   srmReferrerKey: PublicKey | null,
 ): Promise<TransactionInstruction[]> {
-
-  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress(
+    [poolSeed],
+    bonfidaBotProgramId,
+  );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
-  let poolMintKey = await PublicKey.createProgramAddress([poolSeed, array_one], bonfidaBotProgramId);
+  let poolMintKey = await PublicKey.createProgramAddress(
+    [poolSeed, array_one],
+    bonfidaBotProgramId,
+  );
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
 
   let marketData = await getMarketData(connection, market);
-  let poolHeader = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN));
-  let poolAssets = unpack_assets(poolInfo.data.slice(
-    PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH
-  ));
+  let poolHeader = PoolHeader.fromBuffer(
+    poolInfo.data.slice(0, PoolHeader.LEN),
+  );
+  let poolAssets = unpack_assets(
+    poolInfo.data.slice(
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
+  );
 
-  // @ts-ignore
-  let coinPoolAssetIndex = new Numberu64(poolAssets
-    .map(a => { return a.mintAddress.toString() })
-    .indexOf(marketData.coinMintKey.toString())
+  let coinPoolAssetIndex = new Numberu64(
+    // @ts-ignore
+    poolAssets
+      .map(a => {
+        return a.mintAddress.toString();
+      })
+      .indexOf(marketData.coinMintKey.toString()),
   );
   let coinPoolAssetKey = await findAssociatedTokenAddress(
     poolKey,
-    marketData.coinMintKey
+    marketData.coinMintKey,
   );
-  // @ts-ignore
-  let pcPoolAssetIndex = new Numberu64(poolAssets
-    .map(a => { return a.mintAddress.toString() })
-    .indexOf(marketData.pcMintKey.toString())
+
+  let pcPoolAssetIndex = new Numberu64(
+    // @ts-ignore
+    poolAssets
+      .map(a => {
+        return a.mintAddress.toString();
+      })
+      .indexOf(marketData.pcMintKey.toString()),
   );
   let pcPoolAssetKey = await findAssociatedTokenAddress(
     poolKey,
-    marketData.pcMintKey
+    marketData.pcMintKey,
   );
 
   let vaultSignerKey = await PublicKey.createProgramAddress(
     [market.toBuffer(), marketData.vaultSignerNonce.toBuffer()],
-    dexProgramKey
+    dexProgramKey,
   );
 
   let settleFundsTxInstruction = settleFundsInstruction(
@@ -426,9 +485,9 @@ export async function settleFunds(
     [poolSeed],
     pcPoolAssetIndex,
     coinPoolAssetIndex,
-  )
+  );
 
-  return [settleFundsTxInstruction]
+  return [settleFundsTxInstruction];
 }
 
 export async function cancelOrder(
@@ -440,24 +499,33 @@ export async function cancelOrder(
   openOrdersKey: PublicKey,
 ): Promise<TransactionInstruction[]> {
   // Find the pool key
-  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress(
+    [poolSeed],
+    bonfidaBotProgramId,
+  );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
     throw 'Pool account is unavailable';
   }
-  let signalProviderKey = PoolHeader.fromBuffer(poolInfo.data.slice(0, PoolHeader.LEN)).signalProvider;
+  let signalProviderKey = PoolHeader.fromBuffer(
+    poolInfo.data.slice(0, PoolHeader.LEN),
+  ).signalProvider;
   let marketData = await getMarketData(connection, market);
 
-  let openOrders = await OpenOrders.load(connection, openOrdersKey, dexProgramKey);
-  let orders = (openOrders).orders;
-  
+  let openOrders = await OpenOrders.load(
+    connection,
+    openOrdersKey,
+    dexProgramKey,
+  );
+  let orders = openOrders.orders;
+
   // @ts-ignore
   let orderId: Numberu128 = new Numberu128(orders[0].toBuffer());
 
   // @ts-ignore
   if (orderId == new Numberu128(0)) {
-     throw "No orders found in Openorder account."
+    throw 'No orders found in Openorder account.';
   }
 
   let side = 1 - orderId.toBuffer()[7];
@@ -472,7 +540,7 @@ export async function cancelOrder(
     dexProgramKey,
     [poolSeed],
     side,
-    orderId
+    orderId,
   );
 
   return [cancelOrderTxInstruction];
@@ -487,14 +555,19 @@ export async function redeem(
   poolSeed: Array<Buffer | Uint8Array>,
   poolTokenAmount: Numberu64,
 ): Promise<TransactionInstruction[]> {
-
   // TODO collect fees if necessary
 
   // Find the pool key and mint key
-  let poolKey = await PublicKey.createProgramAddress(poolSeed, bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress(
+    poolSeed,
+    bonfidaBotProgramId,
+  );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
-  let poolMintKey = await PublicKey.createProgramAddress(poolSeed.concat(array_one), bonfidaBotProgramId);
+  let poolMintKey = await PublicKey.createProgramAddress(
+    poolSeed.concat(array_one),
+    bonfidaBotProgramId,
+  );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
@@ -503,7 +576,9 @@ export async function redeem(
   let poolData = poolInfo.data;
   let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
   let poolAssets = unpack_assets(
-    poolInfo.data.slice(PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH)
+    poolInfo.data.slice(
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
   );
   let poolAssetKeys: Array<PublicKey> = [];
   for (var asset of poolAssets) {
@@ -522,6 +597,6 @@ export async function redeem(
     targetAssetKeys,
     poolSeed,
     poolTokenAmount,
-  )
-  return [redeemTxInstruction]
+  );
+  return [redeemTxInstruction];
 }
