@@ -31,6 +31,7 @@ import {
   getMarketData,
   Numberu128,
   sleep,
+  getMidPrice,
 } from './utils';
 import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, PoolStatusID, SelfTradeBehavior, unpack_assets } from './state';
 import { assert } from 'console';
@@ -38,7 +39,7 @@ import bs58 from 'bs58';
 import * as crypto from "crypto";
 import { Order } from '@project-serum/serum/lib/market';
 import { BONFIDABOT_PROGRAM_ID, cancelOrder, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
-import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider } from './secondary_bindings';
+import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, singleTokenDeposit } from './secondary_bindings';
 
 
 const test = async (): Promise<void> => {
@@ -214,36 +215,51 @@ const test = async (): Promise<void> => {
     
     //////////////////////////////////////////////
 
-    let fetchedSeeds = await getPoolsSeedsBySigProvider(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      undefined
-    );
-    console.log();
-    console.log("Seeds of existing pools:")
-    console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
-    console.log();
-    
     let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
 
-    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
-    console.log("Pool Info:")
-    console.log({
-        address: poolInfo.address.toString(),
-        serumProgramId: poolInfo.serumProgramId.toString(),
-        seed: bs58.encode(poolInfo.seed),
-        signalProvider: poolInfo.signalProvider.toString(),
-        status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
-        mintKey: poolInfo.mintKey.toString(),
-        assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
-        authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
-    });
-    console.log();
+    singleTokenDeposit(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      sourceOwnerAccount,
+      sourceAssetKeys[0],
+      2,
+      poolSeed,
+      payerAccount
+    )
 
-    let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
-    console.log("Pool Balances:")
-    console.log(poolBalances);
-    console.log();
+    //////////////////////////////////////////////
+
+   
+    // let fetchedSeeds = await getPoolsSeedsBySigProvider(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   undefined
+    // );
+    // console.log();
+    // console.log("Seeds of existing pools:")
+    // console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
+    // console.log();
+    
+    // let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
+
+    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // console.log("Pool Info:")
+    // console.log({
+    //     address: poolInfo.address.toString(),
+    //     serumProgramId: poolInfo.serumProgramId.toString(),
+    //     seed: bs58.encode(poolInfo.seed),
+    //     signalProvider: poolInfo.signalProvider.toString(),
+    //     status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
+    //     mintKey: poolInfo.mintKey.toString(),
+    //     assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
+    //     authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
+    // });
+    // console.log();
+
+    // let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // console.log("Pool Balances:")
+    // console.log(poolBalances);
+    // console.log();
 
   };
   

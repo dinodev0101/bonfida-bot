@@ -17,6 +17,7 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { type } from 'os';
 import { SERUM_PROGRAM_ID } from './main';
 import { Market, TOKEN_MINTS } from "@project-serum/serum";
+import { connect } from 'http2';
 
 export async function findAssociatedTokenAddress(
   walletAddress: PublicKey,
@@ -66,9 +67,9 @@ export async function getMarketData(connection:Connection, marketKey: PublicKey)
 }
 
 export const getMidPrice = async (
+  connection: Connection,
   marketAddress: PublicKey
 ) : Promise<[Market, number]> => {
-
   try {
       const market = await Market.load(
       connection,
