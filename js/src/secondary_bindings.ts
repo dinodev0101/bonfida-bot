@@ -32,6 +32,7 @@ import {
   unpack_assets,
   unpack_markets,
 } from './state';
+import { PoolAssetBalance } from './types';
 
 export type PoolInfo = {
   address: PublicKey;
@@ -99,7 +100,7 @@ export async function fetchPoolBalances(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
   poolSeed: Buffer | Uint8Array,
-): Promise<[TokenAmount, Array<TokenAmount>]> {
+): Promise<[TokenAmount, Array<PoolAssetBalance>]> {
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
     bonfidaBotProgramId,
@@ -131,11 +132,14 @@ export async function fetchPoolBalances(
     poolHeader.numberOfMarkets,
   );
 
-  let assetBalances: Array<TokenAmount> = [];
-  for (var asset of poolAssets) {
+  let assetBalances: Array<PoolAssetBalance> = [];
+  for (let asset of poolAssets) {
     let assetKey = await findAssociatedTokenAddress(poolKey, asset.mintAddress);
     let balance = (await connection.getTokenAccountBalance(assetKey)).value;
-    assetBalances.push(balance);
+    assetBalances.push({
+      tokenAmount: balance,
+      mint: asset.mintAddress.toBase58(),
+    });
   }
 
   let poolTokenSupply = (await connection.getTokenSupply(poolMintKey)).value;
