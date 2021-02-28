@@ -2,12 +2,9 @@ import {
   Account,
   PublicKey,
   SystemProgram,
-  SYSVAR_RENT_PUBKEY,
   TransactionInstruction,
   Connection,
-  CreateAccountParams,
   TokenAmount,
-  InstructionType,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, AccountLayout, u64 } from '@solana/spl-token';
 import { Market, TOKEN_MINTS, MARKETS } from '@project-serum/serum';
@@ -22,13 +19,9 @@ import {
   sleep,
 } from './utils';
 import {
-  OrderSide,
-  OrderType,
-  PoolAsset,
   PoolHeader,
   PoolStatus,
   PUBKEY_LENGTH,
-  SelfTradeBehavior,
   unpack_assets,
   unpack_markets,
 } from './state';
@@ -122,14 +115,6 @@ export async function fetchPoolBalances(
     poolData.data.slice(
       PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
     ),
-  );
-
-  let authorizedMarkets = unpack_markets(
-    poolData.data.slice(
-      PoolHeader.LEN,
-      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
-    ),
-    poolHeader.numberOfMarkets,
   );
 
   let assetBalances: Array<PoolAssetBalance> = [];
