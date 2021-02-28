@@ -442,3 +442,17 @@ export async function getPoolsSeedsBySigProvider(
 
 // TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy
 // TODO adapt bindings to Elliott push in state
+
+// Returns the pool token mint given a pool seed
+export const getPoolTokenMintFromSeed = async (
+  poolSeed: Buffer | Uint8Array,
+  bonfidaBotProgramId: PublicKey,
+) => {
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1;
+  let poolMintKey = await PublicKey.createProgramAddress(
+    [poolSeed, array_one],
+    bonfidaBotProgramId,
+  );
+  return poolMintKey;
+};
