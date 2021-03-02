@@ -5,8 +5,6 @@ use solana_program::{
 };
 use std::{convert::TryInto, num::NonZeroU8};
 
-pub const FIDA_MIN_AMOUNT: u64 = 1000000;
-pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 pub const PUBKEY_LENGTH: usize = 32;
 
 pub const BONFIDA_FEE: &str = "31LVSggbVz4VcwBSPdtK8HJ3Lt1cKTJUVQTRNNYMfqBq";

@@ -196,7 +196,7 @@ export async function singleTokenDeposit(
     TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
   ].name;
 
-  let midPriceUSDC, sourceUSDCKey;
+  let midPriceUSDC: number, sourceUSDCKey: PublicKey;
   if (tokenSymbol != "USDC") {
     let pairSymbol = tokenSymbol.concat("/USDC");
     let usdcMarketInfo =
@@ -209,7 +209,7 @@ export async function singleTokenDeposit(
       throw 'Chosen Market is deprecated';
     }
     
-    let marketUSDC;
+    let marketUSDC: Market;
     [marketUSDC, midPriceUSDC] = await getMidPrice(connection, usdcMarketInfo.address);
 
     console.log(tokenInitialBalance);
@@ -222,14 +222,14 @@ export async function singleTokenDeposit(
       size: amount,
       orderType: 'ioc',
     });
-    await marketUSDC.placeOrder(connection, {
-      owner: sourceOwner,
-      payer: sourceTokenKey,
-      side: 'sell',
-      price: 0.95 * midPriceUSDC,
-      size: amount,
-      orderType: 'ioc',
-    });
+    // await marketUSDC.placeOrder(connection, {
+    //   owner: sourceOwner,
+    //   payer: sourceTokenKey,
+    //   side: 'sell',
+    //   price: 0.95 * midPriceUSDC,
+    //   size: amount,
+    //   orderType: 'ioc',
+    // });
 
     sourceUSDCKey = await findAssociatedTokenAddress(
       sourceOwner.publicKey,
@@ -312,6 +312,15 @@ export async function singleTokenDeposit(
       );
     }
   }
+  if (createAssetInstructions.length > 0) {
+    await signAndSendTransactionInstructions(
+      connection,
+      [],
+      payer,
+      createAssetInstructions,
+    );
+  }
+
 
   // Buy the corresponding tokens with the source USDC in correct ratios 
   console.log("Invest USDC in pool ratios");
@@ -371,7 +380,7 @@ export async function singleTokenDeposit(
         size: assetAmountToBuy,
         orderType: 'ioc',
       });
-      await assetMarket.placeOrder(connection, {
+      assetMarket.placeOrder(connection, {
         owner: sourceOwner,
         payer: sourceUSDCKey,
         side: 'buy',

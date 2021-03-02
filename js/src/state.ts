@@ -95,7 +95,7 @@ export class PoolHeader {
     const numberOfMarkets = Numberu16.fromBuffer(buf.slice(97, 99));
     const feeRatio = Numberu16.fromBuffer(buf.slice(99, 101));
     const lastFeeCollectionTimestamp = Numberu64.fromBuffer(buf.slice(101, 109));
-    const feeCollectionPeriod = Numberu16.fromBuffer(buf.slice(109, 117));
+    const feeCollectionPeriod = Numberu64.fromBuffer(buf.slice(109, 117));
     return new PoolHeader(
       serumProgramId,
       seed,

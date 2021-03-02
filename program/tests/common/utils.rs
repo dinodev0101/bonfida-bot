@@ -8,21 +8,17 @@ use bonfida_bot::{
     state::{unpack_assets, PoolHeader},
 };
 
-#[cfg(not(feature = "fuzz"))]
-use bonfida_bot::state::FIDA_MINT_KEY;
-
-#[cfg(feature = "fuzz")]
-use crate::state::FIDA_MINT_KEY;
 #[cfg(feature = "fuzz")]
 use crate::state::{unpack_assets, PoolHeader};
 
-use solana_program::{hash::Hash, instruction::{Instruction, InstructionError}, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction};
+use solana_program::{instruction::{Instruction, InstructionError}, program_error::ProgramError, program_option::COption, program_pack::Pack, pubkey::Pubkey, rent::Rent, system_instruction};
 use solana_program_test::{BanksClient, ProgramTest, ProgramTestBanksClientExt, ProgramTestContext, find_file, read_file};
 use solana_sdk::{account::Account, signature::{Keypair, Signer}, transaction::{Transaction, TransactionError}, transport::TransportError};
 use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
 use spl_token::{instruction::initialize_account, state::Mint};
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
+const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 
 pub struct Context {
     pub bonfidabot_program_id: Pubkey,

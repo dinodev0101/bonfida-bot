@@ -2,10 +2,10 @@ use std::num::NonZeroU64;
 
 use serum_dex::{instruction::SelfTradeBehavior, matching::{OrderType, Side}, state::gen_vault_signer_key};
 use solana_program::{
-    hash::Hash, instruction::Instruction, program_error::ProgramError, pubkey::Pubkey, rent::Rent,
+    instruction::Instruction, pubkey::Pubkey, rent::Rent,
     sysvar,
 };
-use solana_program_test::{BanksClient, ProgramTestBanksClientExt};
+
 use solana_sdk::{signature::{Keypair, Signer}, transport::TransportError};
 use spl_token::instruction::mint_to;
 

@@ -84,7 +84,7 @@ export function createInstruction(
   depositAmounts: Array<number>,
   markets: Array<PublicKey>,
   feeCollectionPeriod: Numberu64,
-  feeRatio: Numberu64
+  feeRatio: Numberu16
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([1])),

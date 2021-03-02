@@ -10,8 +10,7 @@ use crate::{
     instruction::PoolInstruction,
     state::{
         get_asset_slice, pack_markets, unpack_assets, unpack_market, unpack_unchecked_asset,
-        PoolAsset, PoolHeader, PoolStatus, BONFIDA_BNB, BONFIDA_FEE, FIDA_MINT_KEY,
-        FIDA_MIN_AMOUNT, PUBKEY_LENGTH,
+        PoolAsset, PoolHeader, PoolStatus, BONFIDA_BNB, BONFIDA_FEE, PUBKEY_LENGTH,
     },
     utils::{check_pool_key, check_signal_provider, fill_slice, pow_fixedpoint_u16},
 };
@@ -19,7 +18,7 @@ use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
 };
-use solana_program::{account_info::{next_account_info, AccountInfo}, clock::Clock, entrypoint::ProgramResult, log, msg, program::{invoke, invoke_signed}, program_error::ProgramError, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::Sysvar};
+use solana_program::{account_info::{next_account_info, AccountInfo}, clock::Clock, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::ProgramError, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::Sysvar};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::{
     instruction::{burn, initialize_mint, mint_to, transfer},
@@ -189,7 +188,6 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let mut enough_fida = false;
         let mut pool_assets: Vec<PoolAsset> = vec![];
         for i in 0..number_of_assets {
             let mint_asset_key =
@@ -200,11 +198,6 @@ impl Processor {
                 msg!("Provided pool asset account is invalid");
                 return Err(ProgramError::InvalidArgument);
             }
-
-            // Verify that the first deposit credits more than the min amount of FIDA tokens
-            enough_fida = ((&mint_asset_key.to_string()[..] == FIDA_MINT_KEY)
-                & (deposit_amounts[i] >= FIDA_MIN_AMOUNT))
-                | enough_fida;
 
             let transfer_instruction = transfer(
                 spl_token_account.key,
@@ -226,14 +219,6 @@ impl Processor {
             pool_assets.push(PoolAsset {
                 mint_address: mint_asset_key,
             });
-        }
-
-        if !enough_fida {
-            msg!(
-                "Pool should always hold at least {:?} FIDA tokens",
-                FIDA_MIN_AMOUNT
-            );
-            return Err(BonfidaBotError::NotEnoughFIDA.into());
         }
 
         // Mint the first pooltoken to the target
