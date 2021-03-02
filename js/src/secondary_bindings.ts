@@ -17,6 +17,7 @@ import {
   getMidPrice,
   signAndSendTransactionInstructions,
   sleep,
+  findAndCreateAssociatedAccount,
 } from './utils';
 import {
   PoolHeader,
@@ -26,7 +27,8 @@ import {
   unpack_markets,
 } from './state';
 import { PoolAssetBalance } from './types';
-import { BONFIDA_BNB_KEY, BONFIDA_FEE_KEY } from './main';
+import { BONFIDABOT_PROGRAM_ID, BONFIDA_BNB_KEY, BONFIDA_FEE_KEY, createPool, SERUM_PROGRAM_ID } from './main';
+import { connect } from 'http2';
 
 export type PoolInfo = {
   address: PublicKey;
@@ -132,23 +134,7 @@ export async function fetchPoolBalances(
 
   return [poolTokenSupply, assetBalances];
 }
-
-//TODO easy create
-// let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
-//   poolHeader.signalProvider,
-//   poolMintKey,
-// );
-// let sigProvFeeRecInfo = await connection.getAccountInfo(sigProviderFeeReceiverKey);
-// if (Object.is(sigProvFeeRecInfo, null)) {
-//   instructions.push(
-//     await createAssociatedTokenAccount(
-//       SystemProgram.programId,
-//       payer.publicKey,
-//       poolHeader.signalProvider,
-//       poolMintKey,
-//     ),
-//   );
-// }
+ 
 
 // This method lets the user deposit an arbitrary token into the pool
 // by intermediately trading with serum in order to reach the pool asset ratio
@@ -222,14 +208,14 @@ export async function singleTokenDeposit(
       size: amount,
       orderType: 'ioc',
     });
-    // await marketUSDC.placeOrder(connection, {
-    //   owner: sourceOwner,
-    //   payer: sourceTokenKey,
-    //   side: 'sell',
-    //   price: 0.95 * midPriceUSDC,
-    //   size: amount,
-    //   orderType: 'ioc',
-    // });
+    await marketUSDC.placeOrder(connection, {
+      owner: sourceOwner,
+      payer: sourceTokenKey,
+      side: 'sell',
+      price: 0.95 * midPriceUSDC,
+      size: amount,
+      orderType: 'ioc',
+    });
 
     sourceUSDCKey = await findAssociatedTokenAddress(
       sourceOwner.publicKey,
@@ -252,7 +238,7 @@ export async function singleTokenDeposit(
     }
 
     // TODO potentially wait for match
-    // await sleep(30 * 1000);
+    await sleep(30 * 1000);
 
     // Settle the sourceToken to USDC transfer
     console.log("Settling order");
@@ -398,7 +384,7 @@ export async function singleTokenDeposit(
   }
 
   // TODO potentially wait for match
-  await sleep(30 * 1000);
+  await sleep(5 * 1000);
 
   // Settle the USDC to Poolassets transfers
   console.log("Settling the orders");
@@ -423,33 +409,42 @@ export async function singleTokenDeposit(
 
   // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
   let instructions: Array<TransactionInstruction> = [];
-  let targetPoolTokenKey = await findAssociatedTokenAddress(
+  let [targetPoolTokenKey, targetPTInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     sourceOwner.publicKey,
     poolMintKey,
+    payer.publicKey
   );
-  let targetInfo = await connection.getAccountInfo(targetPoolTokenKey);
-  if (Object.is(targetInfo, null)) {
-    instructions.push(
-      await createAssociatedTokenAccount(
-        SystemProgram.programId,
-        payer.publicKey,
-        sourceOwner.publicKey,
-        poolMintKey,
-      ),
-    );
-  }
-  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+  targetPTInstruction? instructions.push(targetPTInstruction) : null;
+
+  let [sigProviderFeeReceiverKey, sigProvInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     poolHeader.signalProvider,
     poolMintKey,
+    payer.publicKey
   );
-  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+  sigProvInstruction? instructions.push(sigProvInstruction) : null;
+
+  let [bonfidaFeeReceiverKey, bonfidaFeeInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     BONFIDA_FEE_KEY,
     poolMintKey,
+    payer.publicKey
   );
-  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+  bonfidaFeeInstruction? instructions.push(bonfidaFeeInstruction) : null;
+
+  let [bonfidaBuyAndBurnKey, bonfidaBNBInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     BONFIDA_BNB_KEY,
     poolMintKey,
+    payer.publicKey
   );
+  bonfidaBNBInstruction? instructions.push(bonfidaBNBInstruction) : null;
+
 
   // @ts-ignore
   console.log(poolTokenAmount, new Numberu64(1000000 * poolTokenAmount));
@@ -517,8 +512,7 @@ export async function getPoolsSeedsBySigProvider(
   return poolSeeds;
 }
 
-// TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall + create_easy
-// TODO adapt bindings to Elliott push in state
+// TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall
 
 // Returns the pool token mint given a pool seed
 export const getPoolTokenMintFromSeed = async (

@@ -236,9 +236,32 @@ export const signAndSendTransactionInstructions = async (
   signers.push(feePayer);
   tx.add(...txInstructions);
   return await connection.sendTransaction(tx, signers, {
-    preflightCommitment: 'max',
+    preflightCommitment: 'single',
   });
 };
+
+export const findAndCreateAssociatedAccount = async (
+  systemProgramId: PublicKey,
+  connection: Connection,
+  address: PublicKey,
+  mint: PublicKey,
+  payer: PublicKey
+): Promise<[PublicKey, TransactionInstruction | undefined]> => {
+  let associated = await findAssociatedTokenAddress(
+    address,
+    mint,
+  );
+  let associatedInfo = await connection.getAccountInfo(associated);
+  if (!Object.is(associatedInfo, null)) {
+    return [associated, undefined];
+  }
+  return [associated, await createAssociatedTokenAccount(
+      systemProgramId,
+      payer,
+      address,
+      mint,
+  )];
+}
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID: PublicKey = new PublicKey(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',

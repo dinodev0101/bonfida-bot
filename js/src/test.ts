@@ -40,6 +40,7 @@ import * as crypto from "crypto";
 import { Order } from '@project-serum/serum/lib/market';
 import { BONFIDABOT_PROGRAM_ID, cancelOrder, collectFees, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
 import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, singleTokenDeposit } from './secondary_bindings';
+import { SOURCE_OWNER_ACCOUNT } from './secret';
 
 
 const test = async (): Promise<void> => {
@@ -58,7 +59,7 @@ const test = async (): Promise<void> => {
     );
 
     // Accounts to use for test
-    const sourceOwnerAccount = new Account([209,138,118,246,5,217,67,204,37,161,220,18,155,172,128,23,242,70,137,170,6,59,58,212,25,44,166,224,141,41,91,65,8,38,24,142,233,90,158,76,163,107,196,192,78,223,10,102,45,91,195,145,5,138,109,51,78,187,243,50,190,254,210,179]);
+    const sourceOwnerAccount = SOURCE_OWNER_ACCOUNT;
     //Pubkey: YoxKe1BcnqEfCd5nTQR9VqNaYvYwLsZfFkiUZXHXpve (id_mainnet.json)
     const sourceAssetKeys = [
       new PublicKey("143edbvX6YWnz8epG2q5Meu9Bdu6J6czm6z6Aa6wonQ6"),

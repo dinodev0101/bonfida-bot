@@ -18,3 +18,4 @@ third_party/
 js/dist
 js/lib
 js/docs
+js/src/secret.ts
