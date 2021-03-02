@@ -165,17 +165,6 @@ impl TestPool {
         accounts
     }
 
-    pub fn get_signal_provider_accounts(&self) -> Vec<Pubkey> {
-        let mut result = Vec::with_capacity(self.mints.len());
-        for m in self.mints.iter() {
-            result.push(get_associated_token_address(
-                &self.signal_provider.pubkey(),
-                &m.key,
-            ));
-        }
-        result
-    }
-
     pub async fn create(
         &self,
         ctx: &Context,
@@ -228,7 +217,6 @@ impl TestPool {
             &get_associated_token_address(&self.signal_provider.pubkey(), &self.mint_key),
             &source_owner.pubkey(),
             &source_asset_keys,
-            &self.get_signal_provider_accounts(),
             self.seeds,
             amount,
         )
