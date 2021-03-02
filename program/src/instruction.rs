@@ -692,7 +692,6 @@ pub fn deposit(
     signal_provider_pool_token_key: &Pubkey,
     source_owner: &Pubkey,
     source_asset_keys: &Vec<Pubkey>,
-    signal_provider_asset_keys: &Vec<Pubkey>,
     pool_seed: [u8; 32],
     pool_token_amount: u64,
 ) -> Result<Instruction, ProgramError> {
@@ -720,9 +719,6 @@ pub fn deposit(
     accounts.push(AccountMeta::new_readonly(*source_owner, true));
     for source_asset_key in source_asset_keys.iter() {
         accounts.push(AccountMeta::new(*source_asset_key, false))
-    }
-    for key in signal_provider_asset_keys.iter() {
-        accounts.push(AccountMeta::new(*key, false))
     }
     Ok(Instruction {
         program_id: *bonfidabot_program_id,

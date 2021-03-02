@@ -30,7 +30,6 @@ pub enum PoolStatus {
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
-    // TODO: Add pool seeds to header
     pub serum_program_id: Pubkey,
     pub seed: [u8; 32],
     pub signal_provider: Pubkey,

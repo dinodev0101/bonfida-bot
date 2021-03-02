@@ -71,6 +71,7 @@ export function initInstruction(
 export function createInstruction(
   splTokenProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
+  clockSysvarKey: PublicKey,
   mintKey: PublicKey,
   poolKey: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
@@ -82,6 +83,8 @@ export function createInstruction(
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
   markets: Array<PublicKey>,
+  feeCollectionPeriod: Numberu64,
+  feeRatio: Numberu64
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([1])),
@@ -90,6 +93,8 @@ export function createInstruction(
     signalProviderKey.toBuffer(),
     // @ts-ignore
     new Numberu16(markets.length).toBuffer(),
+    feeCollectionPeriod.toBuffer(),
+    feeRatio.toBuffer()
   ];
   for (var market of markets) {
     // @ts-ignore
@@ -104,6 +109,11 @@ export function createInstruction(
   const keys = [
     {
       pubkey: splTokenProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: clockSysvarKey,
       isSigner: false,
       isWritable: false,
     },
@@ -153,6 +163,9 @@ export function createInstruction(
 export function depositInstruction(
   splTokenProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
+  sigProviderFeeReceiverKey: PublicKey,
+  bonfidaFeeReceiverKey: PublicKey,
+  bonfidaBuyAndBurnKey: PublicKey,
   mintKey: PublicKey,
   poolKey: PublicKey,
   poolAssetKeys: Array<PublicKey>,
@@ -183,6 +196,21 @@ export function depositInstruction(
     },
     {
       pubkey: targetPoolTokenKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: sigProviderFeeReceiverKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: bonfidaFeeReceiverKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: bonfidaBuyAndBurnKey,
       isSigner: false,
       isWritable: true,
     },
@@ -498,6 +526,7 @@ export function settleFundsInstruction(
 export function redeemInstruction(
   splTokenProgramId: PublicKey,
   bonfidaBotProgramId: PublicKey,
+  clockSysvarKey: PublicKey,
   mintKey: PublicKey,
   poolKey: PublicKey,
   poolAssetKeys: Array<PublicKey>,
@@ -518,6 +547,11 @@ export function redeemInstruction(
   const keys = [
     {
       pubkey: splTokenProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: clockSysvarKey,
       isSigner: false,
       isWritable: false,
     },
@@ -556,6 +590,68 @@ export function redeemInstruction(
       isWritable: true,
     });
   }
+
+  return new TransactionInstruction({
+    keys,
+    programId: bonfidaBotProgramId,
+    data,
+  });
+}
+
+export function collectFeesInstruction(
+  splTokenProgramId: PublicKey,
+  clockSysvarKey: PublicKey,
+  bonfidaBotProgramId: PublicKey,
+  poolKey: PublicKey,
+  mintKey: PublicKey,
+  signalProviderPoolTokenKey: PublicKey,
+  bonfidaFeePoolTokenKey: PublicKey,
+  bonfidaBnBPTKey: PublicKey,
+  poolSeed: Array<Buffer | Uint8Array>,
+): TransactionInstruction {
+  let buffers = [
+    Buffer.from(Int8Array.from([7])),
+    Buffer.concat(poolSeed),
+  ];
+
+  const data = Buffer.concat(buffers);
+  const keys = [
+    {
+      pubkey: splTokenProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: clockSysvarKey,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: poolKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: mintKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: signalProviderPoolTokenKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: bonfidaFeePoolTokenKey,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: bonfidaBnBPTKey,
+      isSigner: false,
+      isWritable: true,
+    },
+  ];
 
   return new TransactionInstruction({
     keys,

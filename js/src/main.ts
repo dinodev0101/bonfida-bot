@@ -3,6 +3,7 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
+  SYSVAR_CLOCK_PUBKEY,
   TransactionInstruction,
   Connection,
   CreateAccountParams,
@@ -11,6 +12,7 @@ import {
 import { TOKEN_PROGRAM_ID, AccountLayout } from '@solana/spl-token';
 import {
   cancelOrderInstruction,
+  collectFeesInstruction,
   createInstruction,
   createOrderInstruction,
   depositInstruction,
@@ -52,6 +54,14 @@ export const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
   'GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB',
 );
 
+export const BONFIDA_FEE_KEY: PublicKey = new PublicKey(
+  '31LVSggbVz4VcwBSPdtK8HJ3Lt1cKTJUVQTRNNYMfqBq',
+);
+
+export const BONFIDA_BNB_KEY: PublicKey = new PublicKey(
+  '3oQzjfjzUkJ5qHsERk2JPEpAKo34dxAQjUriBqursfxU',
+);
+
 export const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
   'EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o',
 );
@@ -78,6 +88,8 @@ export async function createPool(
   number_of_markets: Numberu16,
   markets: Array<PublicKey>,
   payer: PublicKey,
+  feeCollectionPeriod: Numberu64,
+  feeRatio: Numberu64
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
   // Find a valid pool seed
   let poolSeed: Uint8Array;
@@ -162,6 +174,7 @@ export async function createPool(
   let createTxInstruction = createInstruction(
     TOKEN_PROGRAM_ID,
     bonfidaBotProgramId,
+    SYSVAR_CLOCK_PUBKEY,
     poolMintKey,
     poolKey,
     [poolSeed],
@@ -173,6 +186,8 @@ export async function createPool(
     signalProviderKey,
     depositAmounts,
     markets,
+    feeCollectionPeriod,
+    feeRatio
   );
   let txInstructions = [initTxInstruction].concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
@@ -238,10 +253,25 @@ export async function deposit(
       ),
     );
   }
+  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+    poolHeader.signalProvider,
+    poolMintKey,
+  );
+  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+    BONFIDA_FEE_KEY,
+    poolMintKey,
+  );
+  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+    BONFIDA_BNB_KEY,
+    poolMintKey,
+  );
 
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
     bonfidaBotProgramId,
+    sigProviderFeeReceiverKey,
+    bonfidaFeeReceiverKey,
+    bonfidaBuyAndBurnKey,
     poolMintKey,
     poolKey,
     poolAssetKeys,
@@ -588,6 +618,7 @@ export async function redeem(
 
   let redeemTxInstruction = redeemInstruction(
     TOKEN_PROGRAM_ID,
+    SYSVAR_CLOCK_PUBKEY,
     bonfidaBotProgramId,
     poolMintKey,
     poolKey,
@@ -599,4 +630,60 @@ export async function redeem(
     poolTokenAmount,
   );
   return [redeemTxInstruction];
+}
+
+export async function collectFees(
+  connection: Connection,
+  bonfidaBotProgramId: PublicKey,
+  sourcePoolTokenOwnerKey: PublicKey,
+  sourcePoolTokenKey: PublicKey,
+  targetAssetKeys: Array<PublicKey>,
+  poolSeed: Array<Buffer | Uint8Array>,
+  poolTokenAmount: Numberu64,
+): Promise<TransactionInstruction[]> {
+
+  // Find the pool key and mint key
+  let poolKey = await PublicKey.createProgramAddress(
+    poolSeed,
+    bonfidaBotProgramId,
+  );
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1;
+  let poolMintKey = await PublicKey.createProgramAddress(
+    poolSeed.concat(array_one),
+    bonfidaBotProgramId,
+  );
+
+  let poolInfo = await connection.getAccountInfo(poolKey);
+  if (!poolInfo) {
+    throw 'Pool account is unavailable';
+  }
+  let poolData = poolInfo.data;
+  let poolHeader = PoolHeader.fromBuffer(poolData.slice(0, PoolHeader.LEN));
+
+  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+    poolHeader.signalProvider,
+    poolMintKey,
+  );
+  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+    BONFIDA_FEE_KEY,
+    poolMintKey,
+  );
+  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+    BONFIDA_BNB_KEY,
+    poolMintKey,
+  );
+
+  let collectFeesTxInstruction = collectFeesInstruction(
+    TOKEN_PROGRAM_ID,
+    SYSVAR_CLOCK_PUBKEY,
+    bonfidaBotProgramId,
+    poolKey,
+    poolMintKey,
+    sigProviderFeeReceiverKey,
+    bonfidaFeeReceiverKey,
+    bonfidaBuyAndBurnKey,
+    poolSeed,
+  );
+  return [collectFeesTxInstruction];
 }

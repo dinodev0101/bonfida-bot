@@ -26,6 +26,7 @@ import {
   unpack_markets,
 } from './state';
 import { PoolAssetBalance } from './types';
+import { BONFIDA_BNB_KEY, BONFIDA_FEE_KEY } from './main';
 
 export type PoolInfo = {
   address: PublicKey;
@@ -132,6 +133,23 @@ export async function fetchPoolBalances(
   return [poolTokenSupply, assetBalances];
 }
 
+//TODO easy create
+// let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+//   poolHeader.signalProvider,
+//   poolMintKey,
+// );
+// let sigProvFeeRecInfo = await connection.getAccountInfo(sigProviderFeeReceiverKey);
+// if (Object.is(sigProvFeeRecInfo, null)) {
+//   instructions.push(
+//     await createAssociatedTokenAccount(
+//       SystemProgram.programId,
+//       payer.publicKey,
+//       poolHeader.signalProvider,
+//       poolMintKey,
+//     ),
+//   );
+// }
+
 // This method lets the user deposit an arbitrary token into the pool
 // by intermediately trading with serum in order to reach the pool asset ratio
 export async function singleTokenDeposit(
@@ -200,7 +218,7 @@ export async function singleTokenDeposit(
       owner: sourceOwner.publicKey.toString(),
       payer: sourceTokenKey.toString(),
       side: 'sell',
-      price: 0.9 * midPriceUSDC,
+      price: 0.95 * midPriceUSDC,
       size: amount,
       orderType: 'ioc',
     });
@@ -208,7 +226,7 @@ export async function singleTokenDeposit(
       owner: sourceOwner,
       payer: sourceTokenKey,
       side: 'sell',
-      price: 0.9 * midPriceUSDC,
+      price: 0.95 * midPriceUSDC,
       size: amount,
       orderType: 'ioc',
     });
@@ -349,7 +367,7 @@ export async function singleTokenDeposit(
         owner: sourceOwner.publicKey.toString(),
         payer: sourceUSDCKey.toString(),
         side: 'buy',
-        price: 1.1 * assetMidPrice,
+        price: 1.05 * assetMidPrice,
         size: assetAmountToBuy,
         orderType: 'ioc',
       });
@@ -357,7 +375,7 @@ export async function singleTokenDeposit(
         owner: sourceOwner,
         payer: sourceUSDCKey,
         side: 'buy',
-        price: 1.1 * assetMidPrice,
+        price: 1.05 * assetMidPrice,
         size: assetAmountToBuy,
         orderType: 'ioc',
       });
@@ -394,7 +412,7 @@ export async function singleTokenDeposit(
     }
   }
 
-  // If nonexistent, create the source owner associated address to receive the pooltokens
+  // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
   let instructions: Array<TransactionInstruction> = [];
   let targetPoolTokenKey = await findAssociatedTokenAddress(
     sourceOwner.publicKey,
@@ -411,6 +429,18 @@ export async function singleTokenDeposit(
       ),
     );
   }
+  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+    poolHeader.signalProvider,
+    poolMintKey,
+  );
+  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+    BONFIDA_FEE_KEY,
+    poolMintKey,
+  );
+  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+    BONFIDA_BNB_KEY,
+    poolMintKey,
+  );
 
   // @ts-ignore
   console.log(poolTokenAmount, new Numberu64(1000000 * poolTokenAmount));
@@ -420,6 +450,9 @@ export async function singleTokenDeposit(
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
     bonfidaBotProgramId,
+    sigProviderFeeReceiverKey,
+    bonfidaFeeReceiverKey,
+    bonfidaBuyAndBurnKey,
     poolMintKey,
     poolKey,
     poolAssetKeys,
