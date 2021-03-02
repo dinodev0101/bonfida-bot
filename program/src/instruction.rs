@@ -340,6 +340,7 @@ impl PoolInstruction {
                 let self_trade_behavior = match rest.get(52).ok_or(InvalidInstruction)? {
                     0 => SelfTradeBehavior::DecrementTake,
                     1 => SelfTradeBehavior::CancelProvide,
+                    2 => SelfTradeBehavior::AbortTransaction,
                     _ => return Err(InvalidInstruction.into()),
                 };
                 let source_index = rest
@@ -543,6 +544,7 @@ impl PoolInstruction {
                     &match self_trade_behavior {
                         SelfTradeBehavior::DecrementTake => 0u8,
                         SelfTradeBehavior::CancelProvide => 1,
+                        SelfTradeBehavior::AbortTransaction => 2,
                     }
                     .to_le_bytes(),
                 );

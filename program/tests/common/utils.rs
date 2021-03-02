@@ -55,7 +55,7 @@ impl Context {
             Account {
                 lamports: u32::MAX.into(),
                 data: read_file(find_file("serum_dex.so").unwrap()),
-                owner: solana_program::bpf_loader_deprecated::id(),
+                owner: solana_program::bpf_loader::id(),
                 executable: true,
                 ..Account::default()
             },
