@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { Numberu16 } from './utils';
+import { Numberu16, Numberu64 } from './utils';
 
 // Serum analog types
 export enum OrderSide {
@@ -34,12 +34,15 @@ export enum PoolStatusID {
 export type PoolStatus = [PoolStatusID, number];
 
 export class PoolHeader {
-  static LEN = 99;
+  static LEN = 117;
   serumProgramId!: PublicKey;
   seed!: Uint8Array;
   signalProvider!: PublicKey;
   status!: PoolStatus;
   numberOfMarkets!: Numberu16;
+  feeRatio!: Numberu16;
+  lastFeeCollectionTimestamp!: Numberu64;
+  feeCollectionPeriod!: Numberu64
 
   constructor(
     serumProgramId: PublicKey,
@@ -47,12 +50,18 @@ export class PoolHeader {
     signalProvider: PublicKey,
     status: PoolStatus,
     numberOfMarkets: Numberu16,
+    feeRatio: Numberu16,
+    lastFeeCollectionTimestamp: Numberu64,
+    feeCollectionPeriod: Numberu64
   ) {
     this.serumProgramId = serumProgramId;
     this.seed = seed;
     this.signalProvider = signalProvider;
     this.status = status;
     this.numberOfMarkets = numberOfMarkets;
+    this.feeRatio = feeRatio;
+    this.lastFeeCollectionTimestamp = lastFeeCollectionTimestamp;
+    this.feeCollectionPeriod = feeCollectionPeriod;
   }
 
   static match_status(status_byte: Buffer): PoolStatus {
@@ -84,12 +93,18 @@ export class PoolHeader {
     const status: PoolStatus = PoolHeader.match_status(buf.slice(96, 97));
     // @ts-ignore
     const numberOfMarkets = Numberu16.fromBuffer(buf.slice(97, 99));
+    const feeRatio = Numberu16.fromBuffer(buf.slice(99, 101));
+    const lastFeeCollectionTimestamp = Numberu64.fromBuffer(buf.slice(101, 109));
+    const feeCollectionPeriod = Numberu64.fromBuffer(buf.slice(109, 117));
     return new PoolHeader(
       serumProgramId,
       seed,
       signalProvider,
       status,
       numberOfMarkets,
+      feeRatio,
+      lastFeeCollectionTimestamp,
+      feeCollectionPeriod
     );
   }
 }

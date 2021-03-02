@@ -5,8 +5,6 @@ use solana_program::{
 };
 use std::{convert::TryInto, num::NonZeroU8};
 
-pub const FIDA_MIN_AMOUNT: u64 = 1000000;
-pub const FIDA_MINT_KEY: &str = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp";
 pub const PUBKEY_LENGTH: usize = 32;
 
 pub const BONFIDA_FEE: &str = "31LVSggbVz4VcwBSPdtK8HJ3Lt1cKTJUVQTRNNYMfqBq";
@@ -30,7 +28,6 @@ pub enum PoolStatus {
 
 #[derive(Debug, PartialEq)]
 pub struct PoolHeader {
-    // TODO: Add pool seeds to header
     pub serum_program_id: Pubkey,
     pub seed: [u8; 32],
     pub signal_provider: Pubkey,

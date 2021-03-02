@@ -1,11 +1,8 @@
 #![cfg(feature = "test-bpf")]
-use bonfida_bot::{entrypoint::process_instruction, state::FIDA_MINT_KEY};
 use serum_dex::{instruction::SelfTradeBehavior, matching::Side};
 use solana_program::{program_pack::Pack, pubkey::Pubkey};
-use solana_program_test::{
-    find_file, processor, read_file, ProgramTest, ProgramTestBanksClientExt, ProgramTestContext,
-};
-use solana_sdk::{account::Account, signature::Keypair, signature::Signer};
+
+use solana_sdk::{signature::Keypair, signature::Signer};
 
 use spl_token;
 use std::{
@@ -19,8 +16,8 @@ mod common;
 use common::{
     simulation::Actor,
     utils::{
-        add_token_account, clone_keypair, create_and_get_associated_token_address, mint_bootstrap,
-        print_pool_data, wrap_process_transaction, Context, OpenOrderView,
+        clone_keypair,
+        print_pool_data, Context, OpenOrderView,
     },
 };
 
@@ -254,7 +251,7 @@ async fn test_bonfida_bot() {
     .await
     .unwrap();
 
-    pool.collect_fees(&ctx).await.unwrap();
+    // pool.collect_fees(&ctx).await.unwrap();
 
     print_pool_data(&pool.key, &ctx.test_state.banks_client)
         .await

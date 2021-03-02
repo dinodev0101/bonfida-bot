@@ -233,11 +233,10 @@ export const signAndSendTransactionInstructions = async (
 ): Promise<string> => {
   const tx = new Transaction();
   tx.feePayer = feePayer.publicKey;
-  signers.push(feePayer); // TODO check with token vesting
+  signers.push(feePayer);
   tx.add(...txInstructions);
-  // tx.sign(signers);
   return await connection.sendTransaction(tx, signers, {
-    preflightCommitment: 'single',
+    preflightCommitment: 'max',
   });
 };
 

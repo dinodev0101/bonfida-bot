@@ -26,6 +26,7 @@ import {
   unpack_markets,
 } from './state';
 import { PoolAssetBalance } from './types';
+import { BONFIDA_BNB_KEY, BONFIDA_FEE_KEY } from './main';
 
 export type PoolInfo = {
   address: PublicKey;
@@ -132,6 +133,23 @@ export async function fetchPoolBalances(
   return [poolTokenSupply, assetBalances];
 }
 
+//TODO easy create
+// let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+//   poolHeader.signalProvider,
+//   poolMintKey,
+// );
+// let sigProvFeeRecInfo = await connection.getAccountInfo(sigProviderFeeReceiverKey);
+// if (Object.is(sigProvFeeRecInfo, null)) {
+//   instructions.push(
+//     await createAssociatedTokenAccount(
+//       SystemProgram.programId,
+//       payer.publicKey,
+//       poolHeader.signalProvider,
+//       poolMintKey,
+//     ),
+//   );
+// }
+
 // This method lets the user deposit an arbitrary token into the pool
 // by intermediately trading with serum in order to reach the pool asset ratio
 export async function singleTokenDeposit(
@@ -143,50 +161,10 @@ export async function singleTokenDeposit(
   amount: number,
   poolSeed: Buffer | Uint8Array,
   payer: Account,
-): Promise<string> {
-  // Transfer source tokens to USDC
-  let tokenInfo = await connection.getAccountInfo(sourceTokenKey);
-  if (!tokenInfo) {
-    throw 'Source asset account is unavailable';
-  }
-  let tokenData = Buffer.from(tokenInfo.data);
-  const tokenMint = new PublicKey(AccountLayout.decode(tokenData).mint);
-  const tokenInitialBalance = AccountLayout.decode(tokenData).amount;
-  let tokenSymbol =
-    TOKEN_MINTS[
-      TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
-    ].name;
-  let pairSymbol = tokenSymbol.concat('/USDC');
-
-  let usdcMarketInfo =
-    MARKETS[
-      MARKETS.map(m => {
-        return m.name;
-      }).lastIndexOf(pairSymbol)
-    ];
-  if (usdcMarketInfo.deprecated) {
-    throw 'Chosen Market is deprecated';
-  }
-  let usdcMarketData = await getMarketData(connection, usdcMarketInfo.address);
-
-  let [marketUSDC, midPriceUSDC] = await getMidPrice(
-    connection,
-    usdcMarketInfo.address,
-  );
-  await marketUSDC.placeOrder(connection, {
-    owner: sourceOwner,
-    payer: payer.publicKey,
-    side: 'sell',
-    price: midPriceUSDC,
-    size: amount,
-    orderType: 'ioc',
-  });
-
+) {
   // Fetch Poolasset mints
-  let poolKey = await PublicKey.createProgramAddress(
-    [poolSeed],
-    bonfidaBotProgramId,
-  );
+  console.log("Creating source asset accounts");
+  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
@@ -205,6 +183,107 @@ export async function singleTokenDeposit(
       PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
     ),
   );
+
+  // Transfer source tokens to USDC
+  let tokenInfo = await connection.getAccountInfo(sourceTokenKey);
+  if (!tokenInfo) {
+    throw 'Source asset account is unavailable';
+  }
+  let tokenData = Buffer.from(tokenInfo.data);
+  const tokenMint = new PublicKey(AccountLayout.decode(tokenData).mint);
+  const tokenInitialBalance: number = AccountLayout.decode(tokenData).amount;
+  let tokenSymbol = TOKEN_MINTS[
+    TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
+  ].name;
+
+  let midPriceUSDC: number, sourceUSDCKey: PublicKey;
+  if (tokenSymbol != "USDC") {
+    let pairSymbol = tokenSymbol.concat("/USDC");
+    let usdcMarketInfo =
+      MARKETS[
+        MARKETS.map(m => {
+          return m.name;
+        }).lastIndexOf(pairSymbol)
+      ];
+    if (usdcMarketInfo.deprecated) {
+      throw 'Chosen Market is deprecated';
+    }
+    
+    let marketUSDC: Market;
+    [marketUSDC, midPriceUSDC] = await getMidPrice(connection, usdcMarketInfo.address);
+
+    console.log(tokenInitialBalance);
+    console.log("Creating token to USDC order");
+    console.log({
+      owner: sourceOwner.publicKey.toString(),
+      payer: sourceTokenKey.toString(),
+      side: 'sell',
+      price: 0.95 * midPriceUSDC,
+      size: amount,
+      orderType: 'ioc',
+    });
+    // await marketUSDC.placeOrder(connection, {
+    //   owner: sourceOwner,
+    //   payer: sourceTokenKey,
+    //   side: 'sell',
+    //   price: 0.95 * midPriceUSDC,
+    //   size: amount,
+    //   orderType: 'ioc',
+    // });
+
+    sourceUSDCKey = await findAssociatedTokenAddress(
+      sourceOwner.publicKey,
+      marketUSDC.quoteMintAddress
+    );
+    let sourceUSDCInfo = await connection.getAccountInfo(sourceUSDCKey);
+    if (!sourceUSDCInfo) {
+      let createUSDCInstruction = await createAssociatedTokenAccount(
+        SystemProgram.programId,
+        payer.publicKey,
+        sourceOwner.publicKey,
+        marketUSDC.quoteMintAddress
+      );
+      await signAndSendTransactionInstructions(
+        connection,
+        [],
+        payer,
+        [createUSDCInstruction],
+      );
+    }
+
+    // TODO potentially wait for match
+    // await sleep(30 * 1000);
+
+    // Settle the sourceToken to USDC transfer
+    console.log("Settling order");
+    let openOrders = await marketUSDC.findOpenOrdersAccountsForOwner(
+      connection,
+      sourceOwner.publicKey,
+    );
+    for (let openOrder of openOrders) {
+      await marketUSDC.settleFunds(
+        connection,
+        sourceOwner,
+        openOrder,
+        sourceTokenKey,
+        sourceUSDCKey
+      );
+    }
+  } else {
+    midPriceUSDC = 1;
+    sourceUSDCKey = sourceTokenKey;
+  }
+
+  // Verify that order went through correctly
+  tokenInfo = await connection.getAccountInfo(sourceTokenKey);
+  if (!tokenInfo) {
+    throw 'Source asset account is unavailable';
+  }
+  tokenData = Buffer.from(tokenInfo.data);
+  let tokenBalance = AccountLayout.decode(tokenData).amount;
+  if (tokenInitialBalance - tokenBalance > amount) {
+    throw 'Conversion to USDC Order was not matched.';
+  }
 
   // Create the source asset account if nonexistent
   let createAssetInstructions: TransactionInstruction[] = new Array();
@@ -233,51 +312,18 @@ export async function singleTokenDeposit(
       );
     }
   }
-  await signAndSendTransactionInstructions(
-    connection,
-    [],
-    payer,
-    createAssetInstructions,
-  );
-
-  // TODO potentially wait for match
-  await sleep(30 * 1000);
-
-  // Settle the sourceToken to USDC transfer
-  let openOrders = await marketUSDC.findOpenOrdersAccountsForOwner(
-    connection,
-    sourceOwner.publicKey,
-  );
-  let openOrder =
-    openOrders[
-      openOrders
-        .map(o => o.market.toString())
-        .indexOf(marketUSDC.address.toString())
-    ];
-  let sourceUSDCKey = await findAssociatedTokenAddress(
-    sourceOwner.publicKey,
-    marketUSDC.quoteMintAddress,
-  );
-  await marketUSDC.settleFunds(
-    connection,
-    sourceOwner,
-    openOrder,
-    sourceTokenKey,
-    sourceUSDCKey,
-  );
-
-  // Verify that order went through correctly
-  tokenInfo = await connection.getAccountInfo(sourceTokenKey);
-  if (!tokenInfo) {
-    throw 'Source asset account is unavailable';
-  }
-  tokenData = Buffer.from(tokenInfo.data);
-  let tokenBalance = AccountLayout.decode(tokenData).amount;
-  if (tokenInitialBalance - tokenBalance > amount) {
-    throw 'Conversion to USDC Order was not matched.';
+  if (createAssetInstructions.length > 0) {
+    await signAndSendTransactionInstructions(
+      connection,
+      [],
+      payer,
+      createAssetInstructions,
+    );
   }
 
-  // Buy the to the corresponding tokens with the source USDC in correct ratios
+
+  // Buy the corresponding tokens with the source USDC in correct ratios 
+  console.log("Invest USDC in pool ratios");
   let totalPoolAssetAmount: number = 0;
   let poolAssetAmounts: Array<number> = [];
   for (let asset of poolAssets) {
@@ -291,7 +337,7 @@ export async function singleTokenDeposit(
     poolAssetAmounts.push(poolAssetBalance);
     totalPoolAssetAmount += poolAssetBalance;
   }
-  let poolAssetMarkets: Array<Market> = [];
+  let poolAssetMarkets: Array<Market | undefined> = [];
   let poolTokenAmount = 0;
   for (let i = 0; i < poolAssets.length; i++) {
     let poolAssetSymbol =
@@ -300,70 +346,82 @@ export async function singleTokenDeposit(
           poolAssets[i].mintAddress.toString(),
         )
       ].name;
-    let assetPairSymbol = poolAssetSymbol.concat('/USDC');
+    if (poolAssetSymbol != "USDC") {
+      let assetPairSymbol = poolAssetSymbol.concat('/USDC');
 
-    let assetMarketInfo =
-      MARKETS[
-        MARKETS.map(m => {
-          return m.name;
-        }).lastIndexOf(assetPairSymbol)
-      ];
-    if (assetMarketInfo.deprecated) {
-      throw 'Chosen Market is deprecated';
+      let assetMarketInfo =
+        MARKETS[
+          MARKETS.map(m => {
+            return m.name;
+          }).lastIndexOf(assetPairSymbol)
+        ];
+      if (assetMarketInfo.deprecated) {
+        throw 'Chosen Market is deprecated';
+      }
+
+      let [assetMarket, assetMidPrice] = await getMidPrice(
+        connection,
+        assetMarketInfo.address,
+      );
+      poolAssetMarkets.push(assetMarket);
+      let assetAmountToBuy =
+        (midPriceUSDC * amount * poolAssetAmounts[i]) /
+        (assetMidPrice * totalPoolAssetAmount);
+      poolTokenAmount = Math.max(
+        poolTokenAmount,
+        assetAmountToBuy / poolAssetAmounts[i],
+      );
+      console.log(assetPairSymbol);
+      console.log({
+        owner: sourceOwner.publicKey.toString(),
+        payer: sourceUSDCKey.toString(),
+        side: 'buy',
+        price: 1.05 * assetMidPrice,
+        size: assetAmountToBuy,
+        orderType: 'ioc',
+      });
+      assetMarket.placeOrder(connection, {
+        owner: sourceOwner,
+        payer: sourceUSDCKey,
+        side: 'buy',
+        price: 1.05 * assetMidPrice,
+        size: assetAmountToBuy,
+        orderType: 'ioc',
+      });
+    } else {
+      poolAssetMarkets.push(undefined);
+      poolTokenAmount = Math.max(
+        poolTokenAmount,
+        1000000 * midPriceUSDC * amount / totalPoolAssetAmount,
+      );
     }
-
-    let [assetMarket, assetMidPrice] = await getMidPrice(
-      connection,
-      assetMarketInfo.address,
-    );
-    poolAssetMarkets.push(assetMarket);
-    let assetAmountToBuy =
-      (midPriceUSDC * amount * poolAssetAmounts[i]) /
-      (assetMidPrice * totalPoolAssetAmount);
-    poolTokenAmount = Math.max(
-      poolTokenAmount,
-      assetAmountToBuy / poolAssetAmounts[i],
-    );
-    await assetMarket.placeOrder(connection, {
-      owner: sourceOwner,
-      payer: payer.publicKey,
-      side: 'buy',
-      price: assetMidPrice,
-      size: assetAmountToBuy,
-      orderType: 'ioc',
-    });
   }
 
   // TODO potentially wait for match
   await sleep(30 * 1000);
 
   // Settle the USDC to Poolassets transfers
-  for (let i = 0; i < poolAssets.length; i++) {
-    let assetMarket = poolAssetMarkets[i];
-    let openOrders = await assetMarket.findOpenOrdersAccountsForOwner(
-      connection,
-      sourceOwner.publicKey,
-    );
-    let openOrder =
-      openOrders[
-        openOrders
-          .map(o => o.market.toString())
-          .indexOf(assetMarket.address.toString())
-      ];
-    let sourceUSDCKey = await findAssociatedTokenAddress(
-      sourceOwner.publicKey,
-      marketUSDC.quoteMintAddress,
-    );
-    await assetMarket.settleFunds(
-      connection,
-      sourceOwner,
-      openOrder,
-      sourceUSDCKey,
-      sourceAssetKeys[i],
-    );
+  console.log("Settling the orders");
+  for (let i=0; i < poolAssets.length; i++) {
+    let assetMarket = poolAssetMarkets[i]
+    if (!!assetMarket) {
+      let openOrders = await assetMarket.findOpenOrdersAccountsForOwner(
+        connection,
+        sourceOwner.publicKey,
+      );
+      for (let openOrder of openOrders) {
+        await assetMarket.settleFunds(
+          connection,
+          sourceOwner,
+          openOrder,
+          sourceAssetKeys[i],
+          sourceUSDCKey,
+        );
+      }
+    }
   }
 
-  // If nonexistent, create the source owner associated address to receive the pooltokens
+  // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
   let instructions: Array<TransactionInstruction> = [];
   let targetPoolTokenKey = await findAssociatedTokenAddress(
     sourceOwner.publicKey,
@@ -380,11 +438,30 @@ export async function singleTokenDeposit(
       ),
     );
   }
+  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+    poolHeader.signalProvider,
+    poolMintKey,
+  );
+  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+    BONFIDA_FEE_KEY,
+    poolMintKey,
+  );
+  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+    BONFIDA_BNB_KEY,
+    poolMintKey,
+  );
+
+  // @ts-ignore
+  console.log(poolTokenAmount, new Numberu64(1000000 * poolTokenAmount));
 
   // Do the effective deposit
+  console.log("Execute Buy in");
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
     bonfidaBotProgramId,
+    sigProviderFeeReceiverKey,
+    bonfidaFeeReceiverKey,
+    bonfidaBuyAndBurnKey,
     poolMintKey,
     poolKey,
     poolAssetKeys,
@@ -393,15 +470,15 @@ export async function singleTokenDeposit(
     sourceAssetKeys,
     [poolSeed],
     // @ts-ignore
-    new Numberu64(poolTokenAmount),
+    new Numberu64(1000000 * poolTokenAmount),
   );
   instructions.push(depositTxInstruction);
-  return await signAndSendTransactionInstructions(
+  console.log(await signAndSendTransactionInstructions(
     connection,
     [sourceOwner],
     payer,
     instructions,
-  );
+  ));
 }
 
 // Get the seeds of the pools managed by the given signal provider
@@ -455,4 +532,4 @@ export const getPoolTokenMintFromSeed = async (
     bonfidaBotProgramId,
   );
   return poolMintKey;
-};
+}

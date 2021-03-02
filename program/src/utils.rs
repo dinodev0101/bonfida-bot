@@ -37,3 +37,34 @@ pub fn fill_slice(target: &mut [u8], val: u8) {
         target[i] = val;
     }
 }
+
+pub fn pow_fixedpoint_u16(x: u32, n: u64) -> u32 {
+    if n == 1{
+        x
+    } else {
+        let q = n >> 1;
+        if q == 0 {
+            return x
+        }
+        let p = pow_fixedpoint_u16(x, n >> 1);
+        let sq = (p * p) >> 16;
+        if n & 1 == 1 {
+            (sq * x) >> 16
+        } else {
+            sq
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pow_fixedpoint_u16;
+
+    #[test]
+    fn test_exp(){
+        let half:u16 = 1<<15;
+        for i in 1..16 {
+            assert_eq!(pow_fixedpoint_u16(half as u32, i), 1<<(16 - i));
+        }
+    }
+}

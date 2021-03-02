@@ -38,7 +38,7 @@ import { assert } from 'console';
 import bs58 from 'bs58';
 import * as crypto from "crypto";
 import { Order } from '@project-serum/serum/lib/market';
-import { BONFIDABOT_PROGRAM_ID, cancelOrder, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
+import { BONFIDABOT_PROGRAM_ID, cancelOrder, collectFees, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
 import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, singleTokenDeposit } from './secondary_bindings';
 
 
@@ -77,15 +77,19 @@ const test = async (): Promise<void> => {
     //   connection,
     //   BONFIDABOT_PROGRAM_ID,
     //   SERUM_PROGRAM_ID,
-    //   sourceOwnerAccount,
+    //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   signalProviderAccount.publicKey,
-    //   [2000000, 1000000],
+    //   [500000, 1000000],
     //   10,
     //   // @ts-ignore
     //   new Numberu16(1),
     //   [marketInfo.address],
-    //   payerAccount
+    //   payerAccount.publicKey,
+    //   // @ts-ignore
+    //   new Numberu64(604800),
+    //   // @ts-ignore
+    //   new Numberu16(1 << 13)
     // );
 
     // await signAndSendTransactionInstructions(
@@ -98,6 +102,8 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
     // // Needs to sleep longer than this ?
 
+    // let poolSeed = bs58.decode("HFhJ3k84H3K3iCNHbkTZ657r9fwQGux7czUZavhm4ebV");
+
     // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
     // // Deposit into Pool
@@ -109,7 +115,7 @@ const test = async (): Promise<void> => {
     //   // @ts-ignore
     //   new Numberu64(1000000),
     //   [poolInfo.seed],
-    //   payerAccount
+    //   payerAccount.publicKey
     // );
 
     // await signAndSendTransactionInstructions(
@@ -213,16 +219,33 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
      
     
+    // let collectFeesTxInstruction = await collectFees(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   sourceOwnerAccount.publicKey,
+    //   [poolInfo.seed]
+    // );
+    
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [sourceOwnerAccount],
+    //   payerAccount,
+    //   collectFeesTxInstruction
+    // );
+    // console.log("Redeemed out of Pool")
+    // await sleep(5 * 1000);
+     
+
     //////////////////////////////////////////////
 
-    let poolSeed = bs58.decode("5xK9ByTt1MXP6SfB9BXL16GLRdsCqNr8Xj1SToje12Sa");
+    let poolSeed = bs58.decode("HFhJ3k84H3K3iCNHbkTZ657r9fwQGux7czUZavhm4ebV");
 
     singleTokenDeposit(
       connection,
       BONFIDABOT_PROGRAM_ID,
       sourceOwnerAccount,
       sourceAssetKeys[0],
-      2,
+      1,
       poolSeed,
       payerAccount
     )
