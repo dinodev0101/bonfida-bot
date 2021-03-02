@@ -223,7 +223,6 @@ const test = async (): Promise<void> => {
     // let collectFeesTxInstruction = await collectFees(
     //   connection,
     //   BONFIDABOT_PROGRAM_ID,
-    //   sourceOwnerAccount.publicKey,
     //   [poolInfo.seed]
     // );
     

@@ -29,6 +29,7 @@ import {
 import { PoolAssetBalance } from './types';
 import { BONFIDABOT_PROGRAM_ID, BONFIDA_BNB_KEY, BONFIDA_FEE_KEY, createPool, SERUM_PROGRAM_ID } from './main';
 import { connect } from 'http2';
+import Wallet from '@project-serum/sol-wallet-adapter';
 
 export type PoolInfo = {
   address: PublicKey;
@@ -141,7 +142,7 @@ export async function fetchPoolBalances(
 export async function singleTokenDeposit(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
-  sourceOwner: Account,
+  sourceOwner: Wallet,
   sourceTokenKey: PublicKey,
   // The amount of source tokens to invest into pool
   amount: number,
@@ -512,7 +513,7 @@ export async function getPoolsSeedsBySigProvider(
   return poolSeeds;
 }
 
-// TODO 2nd layer bindings: iterative deposit + settle all(find open orders by owner) + settle&redeem + cancelall
+// TODO 2nd layer bindings: settle all(find open orders by owner) + settle&redeem + cancelall
 
 // Returns the pool token mint given a pool seed
 export const getPoolTokenMintFromSeed = async (
