@@ -18,6 +18,7 @@ import {
   signAndSendTransactionInstructions,
   sleep,
   findAndCreateAssociatedAccount,
+  Numberu16,
 } from './utils';
 import {
   PoolHeader,
@@ -37,6 +38,8 @@ export type PoolInfo = {
   seed: Uint8Array;
   signalProvider: PublicKey;
   status: PoolStatus;
+  feeRatio: Numberu16,
+  feePeriod: Numberu64,
   mintKey: PublicKey;
   assetMintkeys: Array<PublicKey>;
   authorizedMarkets: Array<PublicKey>;
@@ -84,6 +87,8 @@ export async function fetchPoolInfo(
     seed: poolHeader.seed,
     signalProvider: poolHeader.signalProvider,
     status: poolHeader.status,
+    feeRatio: poolHeader.feeRatio,
+    feePeriod: poolHeader.feeCollectionPeriod,
     mintKey: poolMintKey,
     assetMintkeys: poolAssets.map(asset => asset.mintAddress),
     authorizedMarkets,
