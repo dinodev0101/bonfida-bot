@@ -619,8 +619,8 @@ export async function redeem(
 
   let redeemTxInstruction = redeemInstruction(
     TOKEN_PROGRAM_ID,
-    SYSVAR_CLOCK_PUBKEY,
     bonfidaBotProgramId,
+    SYSVAR_CLOCK_PUBKEY,
     poolMintKey,
     poolKey,
     poolAssetKeys,
