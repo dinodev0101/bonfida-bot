@@ -564,6 +564,10 @@ impl Processor {
             msg!("Source token account should be associated to the pool account");
             return Err(ProgramError::InvalidArgument);
         }
+        if order_type != OrderType::ImmediateOrCancel {
+            msg!("Order needs to be of type ImmediateOrCancel");
+            return Err(ProgramError::InvalidArgument);
+        }
 
         let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         if &pool_header.serum_program_id != dex_program.key {
