@@ -47,7 +47,7 @@ import { OpenOrders } from '@project-serum/serum';
 /////////////////////////////////
 
 export const ENDPOINTS = {
-  mainnet: 'https://solana-api.projectserum.com', //https://solana-api.projectserum.com',
+  mainnet: 'https://solana-api.projectserum.com', //http://ec2-52-194-187-6.ap-northeast-1.compute.amazonaws.com:8899/',
   devnet: 'https://devnet.solana.com',
 };
 
@@ -158,8 +158,8 @@ export async function createPool(
     poolAssetKeys.push(await findAssociatedTokenAddress(poolKey, assetMint));
   }
   
-  // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
-  let txInstructions: Array<TransactionInstruction> = [];
+  // If nonexistent, create the source owner associated addresses to receive the pooltokens
+  let txInstructions: Array<TransactionInstruction> = [initTxInstruction];
   let [targetPoolTokenKey, targetPTInstruction] = await findAndCreateAssociatedAccount(
     SystemProgram.programId,
     connection,
@@ -168,33 +168,6 @@ export async function createPool(
     payer
   );
   targetPTInstruction? txInstructions.push(targetPTInstruction) : null;
-
-  let [sigProviderFeeReceiverKey, sigProvInstruction] = await findAndCreateAssociatedAccount(
-    SystemProgram.programId,
-    connection,
-    signalProviderKey,
-    poolMintKey,
-    payer
-  );
-  sigProvInstruction? txInstructions.push(sigProvInstruction) : null;
-
-  let [bonfidaFeeReceiverKey, bonfidaFeeInstruction] = await findAndCreateAssociatedAccount(
-    SystemProgram.programId,
-    connection,
-    BONFIDA_FEE_KEY,
-    poolMintKey,
-    payer
-  );
-  bonfidaFeeInstruction? txInstructions.push(bonfidaFeeInstruction) : null;
-
-  let [bonfidaBuyAndBurnKey, bonfidaBNBInstruction] = await findAndCreateAssociatedAccount(
-    SystemProgram.programId,
-    connection,
-    BONFIDA_BNB_KEY,
-    poolMintKey,
-    payer
-  );
-  bonfidaBNBInstruction? txInstructions.push(bonfidaBNBInstruction) : null;
 
   // Create the pool
   let createTxInstruction = createInstruction(
@@ -230,7 +203,6 @@ export async function deposit(
   poolSeed: Array<Buffer | Uint8Array>,
   payer: PublicKey,
 ): Promise<TransactionInstruction[]> {
-  //TODO Collect fees beforehand
 
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(
@@ -621,7 +593,6 @@ export async function redeem(
   poolSeed: Array<Buffer | Uint8Array>,
   poolTokenAmount: Numberu64,
 ): Promise<TransactionInstruction[]> {
-  // TODO collect fees if necessary
 
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(

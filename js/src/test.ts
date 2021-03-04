@@ -81,7 +81,7 @@ const test = async (): Promise<void> => {
     //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   signalProviderAccount.publicKey,
-    //   [500000, 1000000],
+    //   [50000, 50000],
     //   10,
     //   // @ts-ignore
     //   new Numberu16(1),
@@ -90,7 +90,7 @@ const test = async (): Promise<void> => {
     //   // @ts-ignore
     //   new Numberu64(604800),
     //   // @ts-ignore
-    //   new Numberu16(1 << 13)
+    //   new Numberu16(1 << 10)
     // );
 
     // await signAndSendTransactionInstructions(
@@ -103,29 +103,29 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
     // // Needs to sleep longer than this ?
 
-    let poolSeed = bs58.decode("3vfRZF75MoYnhbne399ASdkG7JNXJQ5wZ3AYE2kDJwnn");
+    // let poolSeed = bs58.decode("3vfRZF75MoYnhbne399ASdkG7JNXJQ5wZ3AYE2kDJwnn");
 
-    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
-    // Deposit into Pool
-    let depositTxInstructions = await deposit(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      sourceOwnerAccount.publicKey,
-      sourceAssetKeys,
-      // @ts-ignore
-      new Numberu64(1000000),
-      [poolInfo.seed],
-      payerAccount.publicKey
-    );
+    // // Deposit into Pool
+    // let depositTxInstructions = await deposit(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   sourceOwnerAccount.publicKey,
+    //   sourceAssetKeys,
+    //   // @ts-ignore
+    //   new Numberu64(1000000),
+    //   [poolInfo.seed],
+    //   payerAccount.publicKey
+    // );
 
-    await signAndSendTransactionInstructions(
-      connection,
-      [sourceOwnerAccount],
-      payerAccount,
-      depositTxInstructions
-    );
-    console.log("Deposited into Pool")
+    // await signAndSendTransactionInstructions(
+    //   connection,
+    //   [sourceOwnerAccount],
+    //   payerAccount,
+    //   depositTxInstructions
+    // );
+    // console.log("Deposited into Pool")
     // await sleep(5 * 1000);
   
     // let [openOrderAccount, createPoolTxInstructions] = await createOrder(
@@ -251,41 +251,41 @@ const test = async (): Promise<void> => {
     //////////////////////////////////////////////
 
    
-    // let fetchedSeeds = await getPoolsSeedsBySigProvider(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   undefined
-    // );
-    // console.log();
-    // console.log("Seeds of existing pools:")
-    // console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
-    // console.log();
+    let fetchedSeeds = await getPoolsSeedsBySigProvider(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      undefined
+    );
+    console.log();
+    console.log("Seeds of existing pools:")
+    console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
+    console.log();
     
-    // let poolSeed = bs58.decode("GPCLUeYJHMK3qA4oQZ2WqCRWYFt7987Yg2dtaQSFd8ow");
+    let poolSeed = bs58.decode("A895Lnmmbu9CsC6hmMGWoKCcZRd9ZJWFFJvjGchWFi5L");
     
-    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
-    // console.log("Pool Info:")
-    // console.log({
-    //     address: poolInfo.address.toString(),
-    //     serumProgramId: poolInfo.serumProgramId.toString(),
-    //     seed: bs58.encode(poolInfo.seed),
-    //     signalProvider: poolInfo.signalProvider.toString(),
-    //     status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
-    //     feeRatio: Number(poolInfo.feeRatio),
-    //     feePeriod: Number(poolInfo.feePeriod),
-    //     mintKey: poolInfo.mintKey.toString(),
-    //     assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
-    //     authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
-    // });
-    // console.log();
+    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    console.log("Pool Info:")
+    console.log({
+        address: poolInfo.address.toString(),
+        serumProgramId: poolInfo.serumProgramId.toString(),
+        seed: bs58.encode(poolInfo.seed),
+        signalProvider: poolInfo.signalProvider.toString(),
+        status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
+        feeRatio: Number(poolInfo.feeRatio),
+        feePeriod: Number(poolInfo.feePeriod),
+        mintKey: poolInfo.mintKey.toString(),
+        assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
+        authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
+    });
+    console.log();
 
-    // let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
-    // console.log("Total Pooltokens", poolBalances[0]);
-    // console.log("Pool Balances:")
-    // console.log(poolBalances[1].map(b => { return {
-    //   mint: b.mint.toString(),
-    //   amount: b.tokenAmount.amount
-    // }}));
+    let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    console.log("Total Pooltokens", poolBalances[0]);
+    console.log("Pool Balances:")
+    console.log(poolBalances[1].map(b => { return {
+      mint: b.mint.toString(),
+      amount: b.tokenAmount.amount
+    }}));
 
   };
   
