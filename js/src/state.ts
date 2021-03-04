@@ -14,6 +14,7 @@ export enum OrderType {
 export enum SelfTradeBehavior {
   DecrementTake,
   CancelProvide,
+  AbortTransaction
 }
 
 export const PUBKEY_LENGTH: number = 32;
