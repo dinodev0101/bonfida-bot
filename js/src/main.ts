@@ -27,6 +27,7 @@ import {
   Numberu16,
   getMarketData,
   Numberu128,
+  findAndCreateAssociatedAccount,
 } from './utils';
 import {
   OrderSide,
@@ -46,7 +47,7 @@ import { OpenOrders } from '@project-serum/serum';
 /////////////////////////////////
 
 export const ENDPOINTS = {
-  mainnet: 'https://solana-api.projectserum.com',
+  mainnet: 'https://solana-api.projectserum.com', //https://solana-api.projectserum.com',
   devnet: 'https://devnet.solana.com',
 };
 
@@ -156,19 +157,44 @@ export async function createPool(
     );
     poolAssetKeys.push(await findAssociatedTokenAddress(poolKey, assetMint));
   }
-  // Create the source owner associated address to receive the pooltokens
-  assetTxInstructions.push(
-    await createAssociatedTokenAccount(
-      SystemProgram.programId,
-      payer,
-      sourceOwnerKey,
-      poolMintKey,
-    ),
-  );
-  let targetPoolTokenKey = await findAssociatedTokenAddress(
+  
+  // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
+  let txInstructions: Array<TransactionInstruction> = [];
+  let [targetPoolTokenKey, targetPTInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     sourceOwnerKey,
     poolMintKey,
+    payer
   );
+  targetPTInstruction? txInstructions.push(targetPTInstruction) : null;
+
+  let [sigProviderFeeReceiverKey, sigProvInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
+    signalProviderKey,
+    poolMintKey,
+    payer
+  );
+  sigProvInstruction? txInstructions.push(sigProvInstruction) : null;
+
+  let [bonfidaFeeReceiverKey, bonfidaFeeInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
+    BONFIDA_FEE_KEY,
+    poolMintKey,
+    payer
+  );
+  bonfidaFeeInstruction? txInstructions.push(bonfidaFeeInstruction) : null;
+
+  let [bonfidaBuyAndBurnKey, bonfidaBNBInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
+    BONFIDA_BNB_KEY,
+    poolMintKey,
+    payer
+  );
+  bonfidaBNBInstruction? txInstructions.push(bonfidaBNBInstruction) : null;
 
   // Create the pool
   let createTxInstruction = createInstruction(
@@ -189,7 +215,7 @@ export async function createPool(
     feeCollectionPeriod,
     feeRatio,
   );
-  let txInstructions = [initTxInstruction].concat(assetTxInstructions);
+  txInstructions = txInstructions.concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
 
   return [poolSeed, txInstructions];
@@ -236,35 +262,44 @@ export async function deposit(
     poolAssetKeys.push(assetKey);
   }
 
-  let targetPoolTokenKey = await findAssociatedTokenAddress(
+  // If nonexistent, create the source owner and signal provider associated addresses to receive the pooltokens
+  let createTargetsTxInstructions: Array<TransactionInstruction> = [];
+  let [targetPoolTokenKey, targetPTInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     sourceOwnerKey,
     poolMintKey,
+    payer
   );
-  let createTargetTxInstructions: TransactionInstruction[] = [];
-  let targetInfo = await connection.getAccountInfo(targetPoolTokenKey);
-  if (Object.is(targetInfo, null)) {
-    // If nonexistent, create the source owner associated address to receive the pooltokens
-    createTargetTxInstructions.push(
-      await createAssociatedTokenAccount(
-        SystemProgram.programId,
-        payer,
-        sourceOwnerKey,
-        poolMintKey,
-      ),
-    );
-  }
-  let sigProviderFeeReceiverKey = await findAssociatedTokenAddress(
+  targetPTInstruction? createTargetsTxInstructions.push(targetPTInstruction) : null;
+
+  let [sigProviderFeeReceiverKey, sigProvInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     poolHeader.signalProvider,
     poolMintKey,
+    payer
   );
-  let bonfidaFeeReceiverKey = await findAssociatedTokenAddress(
+  sigProvInstruction? createTargetsTxInstructions.push(sigProvInstruction) : null;
+
+  let [bonfidaFeeReceiverKey, bonfidaFeeInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     BONFIDA_FEE_KEY,
     poolMintKey,
+    payer
   );
-  let bonfidaBuyAndBurnKey = await findAssociatedTokenAddress(
+  bonfidaFeeInstruction? createTargetsTxInstructions.push(bonfidaFeeInstruction) : null;
+
+  let [bonfidaBuyAndBurnKey, bonfidaBNBInstruction] = await findAndCreateAssociatedAccount(
+    SystemProgram.programId,
+    connection,
     BONFIDA_BNB_KEY,
     poolMintKey,
+    payer
   );
+  bonfidaBNBInstruction? createTargetsTxInstructions.push(bonfidaBNBInstruction) : null;
+
   console.log(poolAssetKeys.map(a => a.toString()));
   console.log(sourceAssetKeys.map(a => a.toString()));
   let depositTxInstruction = depositInstruction(
@@ -282,7 +317,7 @@ export async function deposit(
     poolSeed,
     poolTokenAmount,
   );
-  return createTargetTxInstructions.concat(depositTxInstruction);
+  return createTargetsTxInstructions.concat(depositTxInstruction);
 }
 
 export async function createOrder(
