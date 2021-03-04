@@ -18,7 +18,19 @@ use serum_dex::{
     instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
     matching::{OrderType, Side},
 };
-use solana_program::{account_info::{next_account_info, AccountInfo}, clock::Clock, entrypoint::ProgramResult, msg, program::{invoke, invoke_signed}, program_error::ProgramError, program_pack::{IsInitialized, Pack}, pubkey::Pubkey, rent::Rent, system_instruction::create_account, sysvar::Sysvar};
+use solana_program::{
+    account_info::{next_account_info, AccountInfo},
+    clock::Clock,
+    entrypoint::ProgramResult,
+    msg,
+    program::{invoke, invoke_signed},
+    program_error::ProgramError,
+    program_pack::{IsInitialized, Pack},
+    pubkey::Pubkey,
+    rent::Rent,
+    system_instruction::create_account,
+    sysvar::Sysvar,
+};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::{
     instruction::{burn, initialize_mint, mint_to, transfer},
@@ -532,6 +544,7 @@ impl Processor {
         self_trade_behavior: SelfTradeBehavior,
         source_index: usize,
         target_index: usize,
+        serum_limit: u16,
     ) -> ProgramResult {
         // TODO : Enforce one order limit on openorders accounts
 
@@ -541,7 +554,10 @@ impl Processor {
         let market = next_account_info(account_iter)?;
         let pool_asset_token_account = next_account_info(account_iter)?;
         let openorders_account = next_account_info(account_iter)?;
+        let event_queue = next_account_info(account_iter)?;
         let request_queue = next_account_info(account_iter)?;
+        let market_bids = next_account_info(account_iter)?;
+        let market_asks = next_account_info(account_iter)?;
         let pool_account = next_account_info(account_iter)?;
         let coin_vault = next_account_info(account_iter)?;
         let pc_vault = next_account_info(account_iter)?;
@@ -673,10 +689,21 @@ impl Processor {
             );
         }
 
+        let max_native_pc_qty_including_fees = match side {
+            Side::Bid => NonZeroU64::new(pool_asset_amount).ok_or_else(|| {
+                msg!("Operation too small");
+                BonfidaBotError::OperationTooSmall
+            })?,
+            Side::Ask => NonZeroU64::new(1).unwrap(),
+        };
+
         let new_order_instruction = new_order(
             market.key,
             openorders_account.key,
             request_queue.key,
+            event_queue.key,
+            market_bids.key,
+            market_asks.key,
             pool_asset_token_account.key,
             pool_account.key,
             coin_vault.key,
@@ -694,12 +721,18 @@ impl Processor {
             order_type,
             client_id,
             self_trade_behavior,
+            serum_limit,
+            max_native_pc_qty_including_fees,
         )?;
 
         let mut account_infos = vec![
+            dex_program.clone(),
             market.clone(),
             openorders_account.clone(),
             request_queue.clone(),
+            event_queue.clone(),
+            market_bids.clone(),
+            market_asks.clone(),
             pool_asset_token_account.clone(),
             pool_account.clone(),
             coin_vault.clone(),
@@ -802,6 +835,7 @@ impl Processor {
             pool_pc_asset.mint_address = pc_mint
         }
 
+
         let openorders_free_pc = openorders_account
             .data
             .borrow()
@@ -809,6 +843,7 @@ impl Processor {
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
+
         let openorders_free_coin = openorders_account
             .data
             .borrow()
@@ -824,6 +859,7 @@ impl Processor {
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
+
         let openorders_total_coin = openorders_account
             .data
             .borrow()
@@ -926,7 +962,9 @@ impl Processor {
         let signal_provider = next_account_info(accounts_iter)?;
         let market = next_account_info(accounts_iter)?;
         let openorders_account = next_account_info(accounts_iter)?;
-        let request_queue = next_account_info(accounts_iter)?;
+        let serum_market_bids = next_account_info(accounts_iter)?;
+        let serum_market_asks = next_account_info(accounts_iter)?;
+        let event_queue = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
         let dex_program = next_account_info(accounts_iter)?;
 
@@ -938,13 +976,13 @@ impl Processor {
         let instruction = cancel_order(
             &dex_program.key,
             market.key,
+            serum_market_bids.key,
+            serum_market_asks.key,
             openorders_account.key,
             pool_account.key,
-            request_queue.key,
+            event_queue.key,
             side,
             order_id,
-            [0u64; 4],
-            0,
         )?;
 
         invoke_signed(
@@ -952,9 +990,11 @@ impl Processor {
             &vec![
                 dex_program.clone(),
                 market.clone(),
+                serum_market_bids.clone(),
+                serum_market_asks.clone(),
                 openorders_account.clone(),
-                request_queue.clone(),
                 pool_account.clone(),
+                event_queue.clone(),
             ],
             &[&[&pool_seed]],
         )?;
@@ -969,7 +1009,6 @@ impl Processor {
         // The amount of pooltokens wished to be redeemed
         pool_token_amount: u64,
     ) -> ProgramResult {
-
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
@@ -1149,10 +1188,10 @@ impl Processor {
             Clock::from_account_info(clock_sysvar_account)?.unix_timestamp as u64;
         let fee_cycles_to_collect = (current_timestamp - pool_header.last_fee_collection_timestamp)
             / pool_header.fee_collection_period;
-        
+
         if fee_cycles_to_collect == 0 {
             msg!("There are currently no fees to collect");
-            return Err(BonfidaBotError::LockedOperation.into())
+            return Err(BonfidaBotError::LockedOperation.into());
         }
 
         // 2**-16 = 1.52587890625e-5_f32
@@ -1161,21 +1200,16 @@ impl Processor {
         //         .try_into()
         //         .map_err(|_| BonfidaBotError::Overflow)?,
         // ) * 65536.) as u16;
-        let feeless_ratio_u16 = pow_fixedpoint_u16(!pool_header.fee_ratio as u32, fee_cycles_to_collect) as u16;
+        let feeless_ratio_u16 =
+            pow_fixedpoint_u16(!pool_header.fee_ratio as u32, fee_cycles_to_collect) as u16;
         let collect_ratio = (!feeless_ratio_u16) as u128;
         let feeless_ratio = feeless_ratio_u16 as u128;
         pool_header.last_fee_collection_timestamp +=
             fee_cycles_to_collect * pool_header.fee_collection_period;
-        
-        
 
-        
         let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply as u128;
 
-
         let tokens_to_mint = (collect_ratio * total_pooltokens / feeless_ratio) as u64;
-
-
 
         msg!("CHECK 7");
 
@@ -1199,7 +1233,6 @@ impl Processor {
             ],
             &[&[&pool_seed]],
         )?;
-
 
         msg!("CHECK 8");
 
@@ -1245,14 +1278,12 @@ impl Processor {
             &[&[&pool_seed]],
         )?;
 
-
         msg!("CHECK 9");
 
         PoolHeader::pack(
             pool_header,
             &mut pool_account.data.borrow_mut()[..PoolHeader::LEN],
         )?;
-
 
         msg!("CHECK 10");
 
@@ -1325,6 +1356,7 @@ impl Processor {
                 coin_lot_size,
                 pc_lot_size,
                 target_mint,
+                serum_limit,
             } => {
                 msg!("Instruction: Create Order for Pool");
                 Self::process_create_order(
@@ -1343,6 +1375,7 @@ impl Processor {
                     self_trade_behavior,
                     source_index as usize,
                     target_index as usize,
+                    serum_limit,
                 )
             }
             PoolInstruction::SettleFunds {
@@ -1374,9 +1407,7 @@ impl Processor {
                 msg!("Instruction: Redeem out of Pool");
                 Self::process_redeem(program_id, accounts, pool_seed, pool_token_amount)
             }
-            PoolInstruction::CollectFees {
-                pool_seed
-            } => {
+            PoolInstruction::CollectFees { pool_seed } => {
                 msg!("Instruction: Collect Fees for Pool");
                 Self::process_collect_fees(program_id, accounts, pool_seed)
             }

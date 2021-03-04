@@ -258,7 +258,7 @@ impl Universe {
         Ok(())
     }
 
-    pub async fn consume_turn(&mut self, ctx: &Context, turn: &Turn) -> Result<(), TransportError> {
+    pub async fn consume_turn(&mut self, ctx: &mut Context, turn: &Turn) -> Result<(), TransportError> {
         if self.serum_market.is_none() {
             return Err(into_transport_error(InstructionError::InvalidArgument));
         }

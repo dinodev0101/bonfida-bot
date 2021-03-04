@@ -102,14 +102,17 @@ pub enum PoolInstruction {
     ///    1. `[writable]` The market account
     ///    2. `[writable]` The payer pool asset account
     ///    3. `[writable]` The relevant OpenOrders account
+    ///    4. `[writable]` The Serum event queue
     ///    5. `[writable]` The Serum request queue
-    ///    6. `[writable]` The pool account
-    ///    7. `[writable]` The coin vault
-    ///    8. `[writable]` The price currency vault
-    ///    9. `[]` The spl_token_program
-    ///   10. `[]` The rent sysvar account
-    ///   11. `[]` The dex program account
-    ///   12. `[writable]` (optional) The (M)SRM referrer account
+    ///    6. `[writable]` The Serum market bids
+    ///    7. `[writable]` The Serum market asks
+    ///    8. `[writable]` The pool account
+    ///    9. `[writable]` The coin vault
+    ///   10. `[writable]` The price currency vault
+    ///   11. `[]` The spl_token_program
+    ///   12. `[]` The rent sysvar account
+    ///   13. `[]` The dex program account
+    ///   14. `[writable]` (optional) The (M)SRM referrer account
     CreateOrder {
         pool_seed: [u8; 32],
         side: Side,
@@ -124,6 +127,7 @@ pub enum PoolInstruction {
         coin_lot_size: u64,
         pc_lot_size: u64,
         target_mint: Pubkey,
+        serum_limit: u16
     },
     /// As a signal provider, cancel a serum order for the pool.
     ///
@@ -133,9 +137,11 @@ pub enum PoolInstruction {
     ///    0. `[signer]` The signal provider account
     ///    1. `[]` The market account
     ///    2. `[writable]` The relevant OpenOrders account
-    ///    3. `[writable]` The Serum request queue
-    ///    4. `[]` The pool account
-    ///    5. `[]` The dex program account
+    ///    3. `[writable]` The Serum market bids
+    ///    4. `[writable]` The Serum market asks
+    ///    5. `[writable]` The Serum event queue
+    ///    6. `[]` The pool account
+    ///    7. `[]` The dex program account
     CancelOrder {
         pool_seed: [u8; 32],
         side: Side,
@@ -373,6 +379,11 @@ impl PoolInstruction {
                     .and_then(|slice| slice.try_into().ok())
                     .map(Pubkey::new)
                     .ok_or(InvalidInstruction)?;
+                let serum_limit = rest
+                    .get(119..121)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u16::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
                 Self::CreateOrder {
                     pool_seed,
                     side,
@@ -387,6 +398,7 @@ impl PoolInstruction {
                     coin_lot_size,
                     pc_lot_size,
                     target_mint,
+                    serum_limit
                 }
             }
             4 => {
@@ -519,6 +531,7 @@ impl PoolInstruction {
                 coin_lot_size,
                 pc_lot_size,
                 target_mint,
+                serum_limit
             } => {
                 buf.push(3);
                 buf.extend_from_slice(pool_seed);
@@ -554,6 +567,7 @@ impl PoolInstruction {
                 buf.extend_from_slice(&coin_lot_size.to_le_bytes());
                 buf.extend_from_slice(&pc_lot_size.to_le_bytes());
                 buf.extend_from_slice(&target_mint.to_bytes());
+                buf.extend_from_slice(&serum_limit.to_le_bytes())
             }
             Self::CancelOrder {
                 pool_seed,
@@ -778,7 +792,10 @@ pub fn create_order(
     payer_pool_asset_index: u64,
     target_pool_asset_index: u64,
     openorders_account: &Pubkey,
+    serum_event_queue: &Pubkey,
     serum_request_queue: &Pubkey,
+    serum_market_bids: &Pubkey,
+    serum_market_asks: &Pubkey,
     pool_account: &Pubkey,
     coin_vault: &Pubkey,
     pc_vault: &Pubkey,
@@ -797,6 +814,7 @@ pub fn create_order(
     order_type: OrderType,
     client_id: u64,
     self_trade_behavior: SelfTradeBehavior,
+    serum_limit: u16
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::CreateOrder {
         pool_seed,
@@ -812,6 +830,7 @@ pub fn create_order(
         coin_lot_size,
         pc_lot_size,
         target_mint: *target_mint,
+        serum_limit
     }
     .pack();
     let mut accounts = vec![
@@ -819,7 +838,10 @@ pub fn create_order(
         AccountMeta::new(*market, false),
         AccountMeta::new(*payer_pool_asset_account, false),
         AccountMeta::new(*openorders_account, false),
+        AccountMeta::new(*serum_event_queue, false),
         AccountMeta::new(*serum_request_queue, false),
+        AccountMeta::new(*serum_market_bids, false),
+        AccountMeta::new(*serum_market_asks, false),
         AccountMeta::new(*pool_account, false),
         AccountMeta::new(*coin_vault, false),
         AccountMeta::new(*pc_vault, false),
@@ -843,7 +865,9 @@ pub fn cancel_order(
     signal_provider: &Pubkey,
     market: &Pubkey,
     openorders_account: &Pubkey,
-    serum_request_queue: &Pubkey,
+    serum_market_bids: &Pubkey,
+    serum_market_asks: &Pubkey,
+    serum_event_queue: &Pubkey,
     pool_account: &Pubkey,
     dex_program: &Pubkey,
     pool_seed: [u8; 32],
@@ -860,7 +884,9 @@ pub fn cancel_order(
         AccountMeta::new_readonly(*signal_provider, true),
         AccountMeta::new_readonly(*market, false),
         AccountMeta::new(*openorders_account, false),
-        AccountMeta::new(*serum_request_queue, false),
+        AccountMeta::new(*serum_market_bids, false),
+        AccountMeta::new(*serum_market_asks, false),
+        AccountMeta::new(*serum_event_queue, false),
         AccountMeta::new_readonly(*pool_account, false),
         AccountMeta::new_readonly(*dex_program, false),
     ];
@@ -1015,6 +1041,7 @@ mod test {
             coin_lot_size: 41,
             pc_lot_size: 41,
             target_mint: Pubkey::new_unique(),
+            serum_limit: 5000
         };
         let packed_create_order = original_create_order.pack();
         let unpacked_create_order = PoolInstruction::unpack(&packed_create_order).unwrap();

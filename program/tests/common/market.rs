@@ -229,10 +229,18 @@ impl SerumMarket {
         .await
         .unwrap();
 
+        let max_native_pc_qty_including_fees = match side {
+            Side::Bid => {NonZeroU64::new(max_qty.get() * self.coin_lot_size * self.pc_lot_size / limit_price.get()).unwrap()}
+            Side::Ask => {NonZeroU64::new(1).unwrap()}
+        };
+
         let matching_instruction = serum_dex::instruction::new_order(
             &self.market_key.pubkey(),
             &matching_open_order.pubkey(),
             &self.req_q_key.pubkey(),
+            &self.event_q_key.pubkey(),
+            &self.bids_key.pubkey(),
+            &self.asks_key.pubkey(),
             &coin_source.pubkey(),
             &coin_source_owner.pubkey(),
             &self.coin_vault,
@@ -250,6 +258,8 @@ impl SerumMarket {
             OrderType::Limit,
             client_id,
             self_trade_behavior,
+            1000,
+            max_native_pc_qty_including_fees
         )
         .unwrap();
         wrap_process_transaction(

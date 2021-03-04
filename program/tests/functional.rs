@@ -125,7 +125,7 @@ async fn test_bonfida_bot() {
 
     // Execute a CreateOrder instruction
     pool.create_new_order(
-        &ctx,
+        &mut ctx,
         &serum_market,
         2,
         3,
@@ -196,18 +196,19 @@ async fn test_bonfida_bot() {
     ctx.refresh_blockhash().await;
 
     // Execute a Cancel order instruction on the original, partially settled, order
-    pool.cancel_order(&ctx, &serum_market, &order)
-        .await
-        .unwrap();
+    // For now cancelling cannot work since we are forced to use IOC orders
+    // pool.cancel_order(&ctx, &serum_market, &order)
+    //     .await
+    //     .unwrap();
 
-    serum_market
-        .crank(&ctx, vec![&order.open_orders_account])
-        .await;
+    // serum_market
+    //     .crank(&ctx, vec![&order.open_orders_account])
+    //     .await;
 
-    // Settle the cancelled order
-    pool.settle(&ctx, &serum_market, 3, 2, &order)
-        .await
-        .unwrap();
+    // // Settle the cancelled order
+    // pool.settle(&ctx, &serum_market, 3, 2, &order)
+    //     .await
+    //     .unwrap();
 
     openorder_view =
         OpenOrderView::get(order.open_orders_account, &ctx.test_state.banks_client).await;

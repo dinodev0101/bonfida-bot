@@ -237,7 +237,7 @@ impl TestPool {
 
     pub async fn create_new_order(
         &self,
-        ctx: &Context,
+        ctx: &mut Context,
         serum_market: &SerumMarket,
         source_asset_index: u64,
         target_asset_index: u64,
@@ -246,6 +246,15 @@ impl TestPool {
         limit_price: NonZeroU64,
         max_qty: NonZeroU16,
     ) -> Result<(), TransportError> {
+        println!("{:?}", vec![
+            &order.open_orders_account,
+            &serum_market.event_q_key.pubkey(),
+            &serum_market.req_q_key.pubkey(),
+            &serum_market.bids_key.pubkey(),
+            &serum_market.asks_key.pubkey(),
+        ]);
+        let acc = ctx.test_state.banks_client.get_account(serum_market.event_q_key.pubkey()).await.unwrap();
+        println!("{:?}", acc.is_some());
         let create_order_instruction = create_order(
             &self.program_id,
             &self.signal_provider.pubkey(),
@@ -254,7 +263,10 @@ impl TestPool {
             source_asset_index,
             target_asset_index,
             &order.open_orders_account,
+            &serum_market.event_q_key.pubkey(),
             &serum_market.req_q_key.pubkey(),
+            &serum_market.bids_key.pubkey(),
+            &serum_market.asks_key.pubkey(),
             &self.key,
             &serum_market.coin_vault,
             &serum_market.pc_vault,
@@ -273,6 +285,7 @@ impl TestPool {
             serum_dex::matching::OrderType::ImmediateOrCancel,
             0,
             SelfTradeBehavior::DecrementTake,
+            1000
         )
         .unwrap();
         wrap_process_transaction(
@@ -326,7 +339,9 @@ impl TestPool {
             &self.signal_provider.pubkey(),
             &serum_market.market_key.pubkey(),
             &order.open_orders_account,
-            &serum_market.req_q_key.pubkey(),
+            &serum_market.bids_key.pubkey(),
+            &serum_market.asks_key.pubkey(),
+            &serum_market.event_q_key.pubkey(),
             &self.key,
             &ctx.serum_program_id,
             self.seeds,
