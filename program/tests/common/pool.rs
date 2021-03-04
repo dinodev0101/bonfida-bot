@@ -270,7 +270,7 @@ impl TestPool {
             serum_market.pc_lot_size,
             &self.mints[target_asset_index as usize].key,
             max_qty,
-            serum_dex::matching::OrderType::Limit,
+            serum_dex::matching::OrderType::ImmediateOrCancel,
             0,
             SelfTradeBehavior::DecrementTake,
         )

@@ -61,7 +61,6 @@ impl Context {
             },
         );
         let payer = Keypair::new();
-
         program_test.add_account(
             payer.pubkey(),
             Account {

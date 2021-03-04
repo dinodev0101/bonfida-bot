@@ -969,7 +969,7 @@ impl Processor {
         // The amount of pooltokens wished to be redeemed
         pool_token_amount: u64,
     ) -> ProgramResult {
-        // TODO: Prevent redeem if there are any fees to collect
+
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;

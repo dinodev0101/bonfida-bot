@@ -520,7 +520,7 @@ export async function getPoolsSeedsBySigProvider(
   return poolSeeds;
 }
 
-// TODO 2nd layer bindings: settle all(find open orders by owner) + settle&redeem + cancelall
+// TODO 2nd layer bindings: singleTokenDeposit + settle all(find open orders by owner) + settle&redeem + cancelall
 
 // Returns the pool token mint given a pool seed
 export const getPoolTokenMintFromSeed = async (
