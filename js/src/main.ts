@@ -63,7 +63,7 @@ export const BONFIDA_BNB_KEY: PublicKey = new PublicKey(
 );
 
 export const SERUM_PROGRAM_ID: PublicKey = new PublicKey(
-  'EUqojwWA2rd19FZrzeBncJsm38Jm1hEhE3zsmX3bRc2o',
+  '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin',
 );
 
 export const FIDA_KEY: PublicKey = new PublicKey(
@@ -89,7 +89,7 @@ export async function createPool(
   markets: Array<PublicKey>,
   payer: PublicKey,
   feeCollectionPeriod: Numberu64,
-  feeRatio: Numberu16
+  feeRatio: Numberu16,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
   // Find a valid pool seed
   let poolSeed: Uint8Array;
@@ -187,7 +187,7 @@ export async function createPool(
     depositAmounts,
     markets,
     feeCollectionPeriod,
-    feeRatio
+    feeRatio,
   );
   let txInstructions = [initTxInstruction].concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
@@ -638,7 +638,6 @@ export async function collectFees(
   bonfidaBotProgramId: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
 ): Promise<TransactionInstruction[]> {
-
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(
     poolSeed,

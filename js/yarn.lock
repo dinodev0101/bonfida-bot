@@ -132,12 +132,12 @@
     minimatch "^3.0.4"
     strip-json-comments "^3.1.1"
 
-"@project-serum/serum@^0.13.23":
-  version "0.13.23"
-  resolved "https://registry.npmjs.org/@project-serum/serum/-/serum-0.13.23.tgz"
-  integrity sha512-Atg2sSdQLEp4JIg4jp3vy1T9u9O5wObVTcGe0hX7e7zDmDc4zxBbTJXxdvMRxaz4pfrETyithX//zIMyIHMA8Q==
+"@project-serum/serum@^0.13.25":
+  version "0.13.25"
+  resolved "https://registry.yarnpkg.com/@project-serum/serum/-/serum-0.13.25.tgz#40cbeaed03bb69e6a8c3e9117359b70ef155042e"
+  integrity sha512-IdK768TwM3tJHDPpt3iJ9AR7sMECrXD5B5i+oZhHR2+06Mun9djx/PtTTVYik161PjJXkuQozfWVk2a003s0CQ==
   dependencies:
-    "@solana/web3.js" "0.86.1"
+    "@solana/web3.js" "^0.90.0"
     bn.js "^5.1.2"
     buffer-layout "^1.2.0"
 
@@ -188,29 +188,6 @@
     dotenv "8.2.0"
     mkdirp "1.0.4"
 
-"@solana/web3.js@0.86.1":
-  version "0.86.1"
-  resolved "https://registry.npmjs.org/@solana/web3.js/-/web3.js-0.86.1.tgz"
-  integrity sha512-9mjWs17ym7PIm7bHA37wnnYyD7rIVHwkx1RI6BzGhMO5h8E+HlZM8ISLgOx+NItg8XRCfFhlrVgJTzK4om1s0g==
-  dependencies:
-    "@babel/runtime" "^7.3.1"
-    bn.js "^5.0.0"
-    bs58 "^4.0.1"
-    buffer "^5.4.3"
-    buffer-layout "^1.2.0"
-    crypto-hash "^1.2.2"
-    esdoc-inject-style-plugin "^1.0.0"
-    jayson "^3.0.1"
-    keccak "^3.0.1"
-    mz "^2.7.0"
-    node-fetch "^2.2.0"
-    npm-run-all "^4.1.5"
-    rpc-websockets "^7.4.2"
-    secp256k1 "^4.0.2"
-    superstruct "^0.8.3"
-    tweetnacl "^1.0.0"
-    ws "^7.0.0"
-
 "@solana/web3.js@^0.86.1":
   version "0.86.4"
   resolved "https://registry.npmjs.org/@solana/web3.js/-/web3.js-0.86.4.tgz"
@@ -238,6 +215,29 @@
   version "0.88.0"
   resolved "https://registry.npmjs.org/@solana/web3.js/-/web3.js-0.88.0.tgz"
   integrity sha512-e3dvt+k6keooHuwRR7ZcQoiz0Emi/5fr5QsLBCJyM6WOtId5IYVXLl/3VRxLOBWWcvnhUrhejrOTrASEs1bEqA==
+  dependencies:
+    "@babel/runtime" "^7.3.1"
+    bn.js "^5.0.0"
+    bs58 "^4.0.1"
+    buffer "^6.0.1"
+    buffer-layout "^1.2.0"
+    crypto-hash "^1.2.2"
+    esdoc-inject-style-plugin "^1.0.0"
+    jayson "^3.0.1"
+    keccak "^3.0.1"
+    mz "^2.7.0"
+    node-fetch "^2.2.0"
+    npm-run-all "^4.1.5"
+    rpc-websockets "^7.4.2"
+    secp256k1 "^4.0.2"
+    superstruct "^0.8.3"
+    tweetnacl "^1.0.0"
+    ws "^7.0.0"
+
+"@solana/web3.js@^0.90.0":
+  version "0.90.5"
+  resolved "https://registry.yarnpkg.com/@solana/web3.js/-/web3.js-0.90.5.tgz#5be7d78a19f0b5e01bf82c52e3cbf0bb72a38cfd"
+  integrity sha512-2elnwfIkdtrUjLdTBKu7Rc3mTv95k2cn+JtNtmO2fY/PFRZm7mnGS/gk/wWzGCpBVLiqz2o6o21oONqyDtLG/w==
   dependencies:
     "@babel/runtime" "^7.3.1"
     bn.js "^5.0.0"
