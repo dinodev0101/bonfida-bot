@@ -52,7 +52,7 @@ export const ENDPOINTS = {
 };
 
 export const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
-  'GCv8mMWTwpYCNh6xbMPsx2Z7yKrjCC7LUz6nd3cMZokB',
+  '63xyXHpA6EVF69kRmEbXAr8aBEkhgpaNUSRoTQyi5Rwr',
 );
 
 export const BONFIDA_FEE_KEY: PublicKey = new PublicKey(
@@ -272,8 +272,6 @@ export async function deposit(
   );
   bonfidaBNBInstruction? createTargetsTxInstructions.push(bonfidaBNBInstruction) : null;
 
-  console.log(poolAssetKeys.map(a => a.toString()));
-  console.log(sourceAssetKeys.map(a => a.toString()));
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
     bonfidaBotProgramId,
@@ -410,6 +408,9 @@ export async function createOrder(
     new Numberu64(targetPoolAssetIndex),
     openOrderKey,
     marketData.reqQueueKey,
+    marketData.eventQueueKey,
+    marketData.bidsKey,
+    marketData.asksKey,
     poolKey,
     marketData.coinVaultKey,
     marketData.pcVaultKey,
@@ -429,6 +430,8 @@ export async function createOrder(
     orderType,
     clientId,
     selfTradeBehavior,
+    // @ts-ignore
+    new Numberu16((1<<16) - 1)
   );
 
   let instructions = [
@@ -573,7 +576,9 @@ export async function cancelOrder(
     signalProviderKey,
     market,
     openOrdersKey,
-    marketData.reqQueueKey,
+    marketData.eventQueueKey,
+    marketData.bidsKey,
+    marketData.asksKey,
     poolKey,
     dexProgramKey,
     [poolSeed],

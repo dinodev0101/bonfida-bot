@@ -62,7 +62,7 @@ const test = async (): Promise<void> => {
     const sourceOwnerAccount = SOURCE_OWNER_ACCOUNT;
     //Pubkey: YoxKe1BcnqEfCd5nTQR9VqNaYvYwLsZfFkiUZXHXpve (id_mainnet.json)
     const sourceAssetKeys = [
-      new PublicKey("143edbvX6YWnz8epG2q5Meu9Bdu6J6czm6z6Aa6wonQ6"),
+      new PublicKey("BTP4EbHuXhfCEtk3LeEQJvHxVw4bZaMkA37znm6eXvNw"),
       new PublicKey("G9GeWZvm6LJN9yCqyUeyicScvkaJrKgkKGs5JZQXHDgy")
     ];
     const signalProviderAccount = sourceOwnerAccount;
@@ -81,7 +81,7 @@ const test = async (): Promise<void> => {
     //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   signalProviderAccount.publicKey,
-    //   [50000, 50000],
+    //   [1000000, 1000000],
     //   10,
     //   // @ts-ignore
     //   new Numberu16(1),
@@ -100,11 +100,9 @@ const test = async (): Promise<void> => {
     //   createInstructions
     // );
     // console.log("Created Pool")
-    // await sleep(5 * 1000);
-    // // Needs to sleep longer than this ?
 
-    // let poolSeed = bs58.decode("3vfRZF75MoYnhbne399ASdkG7JNXJQ5wZ3AYE2kDJwnn");
 
+    // let poolSeed = bs58.decode("6BeiMv3wfriqqX1mqwEdgGUgj9u7nzAQLPWtReCyLTMt");
     // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
     // // Deposit into Pool
@@ -114,7 +112,7 @@ const test = async (): Promise<void> => {
     //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   // @ts-ignore
-    //   new Numberu64(1000000),
+    //   new Numberu64(3000000),
     //   [poolInfo.seed],
     //   payerAccount.publicKey
     // );
@@ -139,7 +137,7 @@ const test = async (): Promise<void> => {
     //   new Numberu64(1<<63),
     //   // @ts-ignore
     //   new Numberu16(1<<15),
-    //   OrderType.Limit,
+    //   OrderType.ImmediateOrCancel,
     //   // @ts-ignore
     //   new Numberu64(0),
     //   SelfTradeBehavior.DecrementTake,
@@ -154,7 +152,6 @@ const test = async (): Promise<void> => {
     //   createPoolTxInstructions
     // );
     // console.log("Created Order for Pool")
-    // await sleep(5 * 1000);
   
     // let cancelOrderTxInstruction = await cancelOrder(
     //   connection,
@@ -171,34 +168,32 @@ const test = async (): Promise<void> => {
     //   payerAccount,
     //   cancelOrderTxInstruction
     // );
-    // console.log("Cancelled Order")
     // await sleep(5 * 1000);
 
+
+    // let settleFundsTxInstructions = await settleFunds(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   SERUM_PROGRAM_ID,
+    //   poolInfo.seed,
+    //   marketInfo.address,
+    //   OpenOrderAccount.address,
+    //   null,
+    //   );
+      
+    // await signAndSendTransactionInstructions(
+    //     connection,
+    //     [],
+    //     payerAccount,
+    //     settleFundsTxInstructions
+    //   );
+    // console.log("Settled Funds")
+  
     // let sourcePoolTokenKey = await findAssociatedTokenAddress(
     //   sourceOwnerAccount.publicKey,
     //   poolInfo.mintKey
     // );
-
-    // let settleFundsTxInstructions = await settleFunds(
-    //     connection,
-    //     BONFIDABOT_PROGRAM_ID,
-    //     SERUM_PROGRAM_ID,
-    //     poolInfo.seed,
-    //     marketInfo.address,
-    //     openOrderAccount.publicKey,
-    //     null
-    // );
-
-    // await signAndSendTransactionInstructions(
-    //   connection,
-    //   [],
-    //   payerAccount,
-    //   settleFundsTxInstructions
-    // );
-    // console.log("Settled Funds")
-    // await sleep(5 * 1000);
-    
-
+        
     // let redeemTxInstruction = await redeem(
     //   connection,
     //   BONFIDABOT_PROGRAM_ID,
@@ -207,7 +202,7 @@ const test = async (): Promise<void> => {
     //   sourceAssetKeys,
     //   [poolInfo.seed],
     //   // @ts-ignore
-    //   new Numberu64(400000)
+    //   new Numberu64(1000000)
     // );
     
     // await signAndSendTransactionInstructions(
@@ -261,9 +256,9 @@ const test = async (): Promise<void> => {
     console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
     console.log();
     
-    let poolSeed = bs58.decode("A895Lnmmbu9CsC6hmMGWoKCcZRd9ZJWFFJvjGchWFi5L");
-    
+    let poolSeed = bs58.decode("6BeiMv3wfriqqX1mqwEdgGUgj9u7nzAQLPWtReCyLTMt");
     let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    
     console.log("Pool Info:")
     console.log({
         address: poolInfo.address.toString(),

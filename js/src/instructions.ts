@@ -256,6 +256,9 @@ export function createOrderInstruction(
   targetPoolAssetIndex: Numberu64,
   openOrdersKey: PublicKey,
   serumRequestQueue: PublicKey,
+  serumEventQueue: PublicKey,
+  serumMarketBids: PublicKey,
+  serumMarketAsks: PublicKey,
   poolKey: PublicKey,
   coinVaultKey: PublicKey,
   pcVaultKey: PublicKey,
@@ -274,6 +277,7 @@ export function createOrderInstruction(
   orderType: OrderType,
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior,
+  serumLimit: Numberu16,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([3])),
@@ -290,6 +294,7 @@ export function createOrderInstruction(
     coin_lot_size.toBuffer(),
     pc_lot_size.toBuffer(),
     target_mint.toBuffer(),
+    serumLimit.toBuffer()
   ];
   const data = Buffer.concat(buffers);
 
@@ -315,7 +320,22 @@ export function createOrderInstruction(
       isWritable: true,
     },
     {
+      pubkey: serumEventQueue,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
       pubkey: serumRequestQueue,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: serumMarketBids,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: serumMarketAsks,
       isSigner: false,
       isWritable: true,
     },
@@ -370,7 +390,9 @@ export function cancelOrderInstruction(
   signalProviderKey: PublicKey,
   market: PublicKey,
   openOrdersKey: PublicKey,
-  requestQueue: PublicKey,
+  serumEventQueue: PublicKey,
+  serumMarketBids: PublicKey,
+  serumMarketAsks: PublicKey,
   poolKey: PublicKey,
   dexProgramKey: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
@@ -402,7 +424,17 @@ export function cancelOrderInstruction(
       isWritable: true,
     },
     {
-      pubkey: requestQueue,
+      pubkey: serumEventQueue,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: serumMarketBids,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: serumMarketAsks,
       isSigner: false,
       isWritable: true,
     },

@@ -42,6 +42,9 @@ export type MarketData = {
   pcLotSize: Numberu64;
   vaultSignerNonce: Numberu64;
   reqQueueKey: PublicKey;
+  eventQueueKey: PublicKey;
+  bidsKey: PublicKey;
+  asksKey: PublicKey;
 };
 
 export async function getMarketData(
@@ -66,6 +69,9 @@ export async function getMarketData(
       marketAccountInfo.data.slice(45, 53).reverse(),
     ),
     reqQueueKey: new PublicKey(marketAccountInfo.data.slice(221, 253)),
+    eventQueueKey: new PublicKey(marketAccountInfo.data.slice(253, 285)),
+    bidsKey: new PublicKey(marketAccountInfo.data.slice(285, 317)),
+    asksKey: new PublicKey(marketAccountInfo.data.slice(317, 349)),
   };
   return marketData;
 }
@@ -101,7 +107,7 @@ export class Numberu16 extends BN {
     if (b.length === 2) {
       return b;
     }
-    assert(b.length < 2, 'Numberu64 too large');
+    assert(b.length < 2, 'Numberu16 too large');
 
     const zeroPad = Buffer.alloc(2);
     b.copy(zeroPad);
@@ -196,7 +202,7 @@ export class Numberu128 extends BN {
     if (b.length === 16) {
       return b;
     }
-    assert(b.length < 16, 'Numberu64 too large');
+    assert(b.length < 16, 'Numberu128 too large');
 
     const zeroPad = Buffer.alloc(16, 0);
     b.copy(zeroPad);

@@ -69,6 +69,9 @@ export class PoolHeader {
     let sByte = status_byte.readInt8(0);
     switch (sByte >> 6) {
       case 0:
+        if (status_byte.readInt8(0) == 0) {
+          return [PoolStatusID.Uninitialized, 0]
+        }
         return [PoolStatusID.Unlocked, 0];
       case 1:
         return [

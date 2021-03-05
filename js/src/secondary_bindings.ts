@@ -54,14 +54,12 @@ export async function fetchPoolInfo(
     [poolSeed],
     bonfidaBotProgramId,
   );
-  console.log(poolKey.toString());
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
     bonfidaBotProgramId,
   );
-  console.log(poolMintKey.toString());
   let poolData = await connection.getAccountInfo(poolKey);
   if (!poolData) {
     throw 'Pool account is unavailable';
