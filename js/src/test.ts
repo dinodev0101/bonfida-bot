@@ -171,23 +171,23 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
 
 
-    // let settleFundsTxInstructions = await settleFunds(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
-    //   poolInfo.seed,
-    //   marketInfo.address,
-    //   OpenOrderAccount.address,
-    //   null,
-    //   );
+    let settleFundsTxInstructions = await settleFunds(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      poolInfo.seed,
+      marketInfo.address,
+      OpenOrderAccount.address,
+      null,
+      );
       
-    // await signAndSendTransactionInstructions(
-    //     connection,
-    //     [],
-    //     payerAccount,
-    //     settleFundsTxInstructions
-    //   );
-    // console.log("Settled Funds")
+    await signAndSendTransactionInstructions(
+        connection,
+        [],
+        payerAccount,
+        settleFundsTxInstructions
+      );
+    console.log("Settled Funds")
   
     // let sourcePoolTokenKey = await findAssociatedTokenAddress(
     //   sourceOwnerAccount.publicKey,
