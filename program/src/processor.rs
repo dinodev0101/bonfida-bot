@@ -1135,6 +1135,7 @@ impl Processor {
             // Reset the pool data, keeping the pool header mostly intact to preserve pool seeds
             fill_slice(&mut pool_account.data.borrow_mut()[PoolHeader::LEN..], 0u8);
             pool_header.status = PoolStatus::Uninitialized;
+            pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
         }
 
         Ok(())
