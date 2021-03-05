@@ -895,7 +895,10 @@ impl Processor {
                         }
                     }
                 }
-                _ => return Err(ProgramError::InvalidAccountData),
+                _ => {
+                    msg!("The pool has no pending orders.");
+                    return Err(ProgramError::InvalidAccountData)
+                },
             }
         }
         pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
@@ -1019,7 +1022,7 @@ impl Processor {
         let source_pool_token_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
 
-        let pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
+        let mut pool_header = PoolHeader::unpack(&pool_account.data.borrow()[..PoolHeader::LEN])?;
         let asset_offset = PoolHeader::LEN + PUBKEY_LENGTH * pool_header.number_of_markets as usize;
         let pool_assets = unpack_assets(&pool_account.data.borrow()[asset_offset..])?;
         let nb_assets = pool_assets.len();
@@ -1129,8 +1132,9 @@ impl Processor {
         )?;
 
         if pool_token_amount == total_pooltokens {
-            // Reset the pool data
-            fill_slice(&mut pool_account.data.borrow_mut(), 0u8);
+            // Reset the pool data, keeping the pool header mostly intact to preserve pool seeds
+            fill_slice(&mut pool_account.data.borrow_mut()[PoolHeader::LEN..], 0u8);
+            pool_header.status = PoolStatus::Uninitialized;
         }
 
         Ok(())
