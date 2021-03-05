@@ -92,6 +92,10 @@ export async function createPool(
   feeCollectionPeriod: Numberu64,
   feeRatio: Numberu16,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
+  // TODO deduce number of markets from markets
+  // TODO Remove horadcoded ids from binding inputs 
+  // TODO Take in amounts / precision 
+
   // Find a valid pool seed
   let poolSeed: Uint8Array;
   let poolKey: PublicKey;
@@ -290,6 +294,15 @@ export async function deposit(
   return createTargetsTxInstructions.concat(depositTxInstruction);
 }
 
+/*
+* 
+*
+* @param 
+* @param 
+* @param 
+* @param 
+*
+*/
 export async function createOrder(
   connection: Connection,
   bonfidaBotProgramId: PublicKey,
@@ -305,6 +318,9 @@ export async function createOrder(
   srmReferrerKey: PublicKey | null,
   payerKey: PublicKey,
 ): Promise<[Account, TransactionInstruction[]]> {
+  // TODO round price input to decimal of market precision
+  // TODO Set maxQuantity to be a percentage float
+
   // Find the pool key
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],

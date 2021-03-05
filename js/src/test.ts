@@ -102,8 +102,8 @@ const test = async (): Promise<void> => {
     // console.log("Created Pool")
 
 
-    // let poolSeed = bs58.decode("6BeiMv3wfriqqX1mqwEdgGUgj9u7nzAQLPWtReCyLTMt");
-    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    let poolSeed = bs58.decode("GaVkjAUzWJAHPkwfSWge5npL8BR369taqMMQZ2ksYWbT");
+    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
 
     // // Deposit into Pool
     // let depositTxInstructions = await deposit(
@@ -126,24 +126,24 @@ const test = async (): Promise<void> => {
     // console.log("Deposited into Pool")
     // await sleep(5 * 1000);
   
-    // let [openOrderAccount, createPoolTxInstructions] = await createOrder(
-    //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
-    //   poolInfo.seed,
-    //   marketInfo.address,
-    //   OrderSide.Ask,
-    //   // @ts-ignore
-    //   new Numberu64(1<<63),
-    //   // @ts-ignore
-    //   new Numberu16(1<<15),
-    //   OrderType.ImmediateOrCancel,
-    //   // @ts-ignore
-    //   new Numberu64(0),
-    //   SelfTradeBehavior.DecrementTake,
-    //   null, // Self referring
-    //   payerAccount.publicKey
-    // );
+    let [openOrderAccount, createPoolTxInstructions] = await createOrder(
+      connection,
+      BONFIDABOT_PROGRAM_ID,
+      SERUM_PROGRAM_ID,
+      poolInfo.seed,
+      marketInfo.address,
+      OrderSide.Ask,
+      // @ts-ignore
+      new Numberu64(1<<63),
+      // @ts-ignore
+      new Numberu16(1<<15),
+      OrderType.ImmediateOrCancel,
+      // @ts-ignore
+      new Numberu64(0),
+      SelfTradeBehavior.DecrementTake,
+      null, // Self referring
+      payerAccount.publicKey
+    );
 
     // await signAndSendTransactionInstructions(
     //   connection,
@@ -246,41 +246,41 @@ const test = async (): Promise<void> => {
     //////////////////////////////////////////////
 
    
-    let fetchedSeeds = await getPoolsSeedsBySigProvider(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      undefined
-    );
-    console.log();
-    console.log("Seeds of existing pools:")
-    console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
-    console.log();
+    // let fetchedSeeds = await getPoolsSeedsBySigProvider(
+    //   connection,
+    //   BONFIDABOT_PROGRAM_ID,
+    //   undefined
+    // );
+    // console.log();
+    // console.log("Seeds of existing pools:")
+    // console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
+    // console.log();
     
-    let poolSeed = bs58.decode("6BeiMv3wfriqqX1mqwEdgGUgj9u7nzAQLPWtReCyLTMt");
-    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // let poolSeed = bs58.decode("GaVkjAUzWJAHPkwfSWge5npL8BR369taqMMQZ2ksYWbT");
+    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
     
-    console.log("Pool Info:")
-    console.log({
-        address: poolInfo.address.toString(),
-        serumProgramId: poolInfo.serumProgramId.toString(),
-        seed: bs58.encode(poolInfo.seed),
-        signalProvider: poolInfo.signalProvider.toString(),
-        status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
-        feeRatio: Number(poolInfo.feeRatio),
-        feePeriod: Number(poolInfo.feePeriod),
-        mintKey: poolInfo.mintKey.toString(),
-        assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
-        authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
-    });
-    console.log();
+    // console.log("Pool Info:")
+    // console.log({
+    //     address: poolInfo.address.toString(),
+    //     serumProgramId: poolInfo.serumProgramId.toString(),
+    //     seed: bs58.encode(poolInfo.seed),
+    //     signalProvider: poolInfo.signalProvider.toString(),
+    //     status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
+    //     feeRatio: Number(poolInfo.feeRatio),
+    //     feePeriod: Number(poolInfo.feePeriod),
+    //     mintKey: poolInfo.mintKey.toString(),
+    //     assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
+    //     authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
+    // });
+    // console.log();
 
-    let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
-    console.log("Total Pooltokens", poolBalances[0]);
-    console.log("Pool Balances:")
-    console.log(poolBalances[1].map(b => { return {
-      mint: b.mint.toString(),
-      amount: b.tokenAmount.amount
-    }}));
+    // let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // console.log("Total Pooltokens", poolBalances[0]);
+    // console.log("Pool Balances:")
+    // console.log(poolBalances[1].map(b => { return {
+    //   mint: b.mint.toString(),
+    //   amount: b.tokenAmount.amount
+    // }}));
 
   };
   

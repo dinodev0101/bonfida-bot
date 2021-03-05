@@ -1301,6 +1301,7 @@ impl Processor {
         instruction_data: &[u8],
     ) -> ProgramResult {
         msg!("Beginning processing");
+
         let instruction = PoolInstruction::unpack(instruction_data)?;
         msg!("Instruction unpacked");
         match instruction {
