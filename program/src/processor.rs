@@ -690,7 +690,7 @@ impl Processor {
         }
 
         let max_native_pc_qty_including_fees = match side {
-            Side::Bid => NonZeroU64::new(pool_asset_amount).ok_or_else(|| {
+            Side::Bid => NonZeroU64::new(amount_to_trade).ok_or_else(|| {
                 msg!("Operation too small");
                 BonfidaBotError::OperationTooSmall
             })?,
