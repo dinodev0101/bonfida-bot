@@ -14,10 +14,7 @@ use crate::{
     },
     utils::{check_pool_key, check_signal_provider, fill_slice, pow_fixedpoint_u16},
 };
-use serum_dex::{
-    instruction::{cancel_order, new_order, settle_funds, SelfTradeBehavior},
-    matching::{OrderType, Side},
-};
+use serum_dex::{instruction::{self, SelfTradeBehavior, cancel_order, new_order, settle_funds}, matching::{OrderType, Side}};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     clock::Clock,
@@ -770,7 +767,7 @@ impl Processor {
         let spl_token_program = next_account_info(account_iter)?;
         let dex_program = next_account_info(account_iter)?;
 
-        let discount_account = next_account_info(account_iter).ok();
+        let referrer_account = next_account_info(account_iter).ok();
 
         check_pool_key(program_id, pool_account.key, &pool_seed)?;
 
@@ -927,7 +924,7 @@ impl Processor {
             pool_coin_wallet.key,
             pc_vault.key,
             pool_pc_wallet.key,
-            discount_account.map(|a| a.key),
+            referrer_account.map(|a| a.key),
             vault_signer.key,
         )?;
 
@@ -944,7 +941,7 @@ impl Processor {
             spl_token_program.clone(),
         ];
 
-        if let Some(a) = discount_account {
+        if let Some(a) = referrer_account {
             accounts.push(a.clone())
         }
 

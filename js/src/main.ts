@@ -47,7 +47,7 @@ import { OpenOrders } from '@project-serum/serum';
 /////////////////////////////////
 
 export const ENDPOINTS = {
-  mainnet: 'https://solana-api.projectserum.com', //http://ec2-52-194-187-6.ap-northeast-1.compute.amazonaws.com:8899/',
+  mainnet: 'https://solana-api.projectserum.com',
   devnet: 'https://devnet.solana.com',
 };
 
@@ -93,8 +93,8 @@ export async function createPool(
   feeRatio: Numberu16,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
   // TODO deduce number of markets from markets
-  // TODO Remove horadcoded ids from binding inputs 
-  // TODO Take in amounts / precision 
+  // TODO Remove horadcoded ids from binding inputs
+  // TODO Take in quantity percentage (0 to 100), convert to 2e16 ratio
 
   // Find a valid pool seed
   let poolSeed: Uint8Array;
@@ -128,6 +128,7 @@ export async function createPool(
   console.log('Mint key: ', poolMintKey.toString());
 
   // Initialize the pool
+  // let numberOfMarkets = new Numberu16(markets.length)
   let initTxInstruction = initInstruction(
     TOKEN_PROGRAM_ID,
     SystemProgram.programId,
@@ -315,7 +316,7 @@ export async function createOrder(
   orderType: OrderType,
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior,
-  srmReferrerKey: PublicKey | null,
+  srmDiscountKey: PublicKey | null,
   payerKey: PublicKey,
 ): Promise<[Account, TransactionInstruction[]]> {
   // TODO round price input to decimal of market precision
@@ -433,7 +434,7 @@ export async function createOrder(
     TOKEN_PROGRAM_ID,
     serumProgramId,
     SYSVAR_RENT_PUBKEY,
-    srmReferrerKey,
+    srmDiscountKey,
     [poolSeed],
     side,
     limitPrice,

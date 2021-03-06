@@ -112,7 +112,7 @@ pub enum PoolInstruction {
     ///   11. `[]` The spl_token_program
     ///   12. `[]` The rent sysvar account
     ///   13. `[]` The dex program account
-    ///   14. `[writable]` (optional) The (M)SRM referrer account
+    ///   14. `[writable]` (optional) The (M)SRM discount account
     CreateOrder {
         pool_seed: [u8; 32],
         side: Side,
@@ -802,7 +802,7 @@ pub fn create_order(
     spl_token_program: &Pubkey,
     dex_program: &Pubkey,
     rent_sysvar: &Pubkey,
-    srm_referrer_account: Option<&Pubkey>,
+    srm_discount_account: Option<&Pubkey>,
     pool_seed: [u8; 32],
     side: Side,
     limit_price: NonZeroU64,
@@ -849,7 +849,7 @@ pub fn create_order(
         AccountMeta::new_readonly(*rent_sysvar, false),
         AccountMeta::new_readonly(*dex_program, false),
     ];
-    if let Some(key) = srm_referrer_account {
+    if let Some(key) = srm_discount_account {
         accounts.push(AccountMeta::new(*key, false));
     }
     Ok(Instruction {
