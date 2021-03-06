@@ -76,8 +76,6 @@ const test = async (): Promise<void> => {
     // // Create Pool
     // let [poolSeed, createInstructions] = await createPool(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
     //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   signalProviderAccount.publicKey,
@@ -103,12 +101,11 @@ const test = async (): Promise<void> => {
 
 
     let poolSeed = bs58.decode("GaVkjAUzWJAHPkwfSWge5npL8BR369taqMMQZ2ksYWbT");
-    let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    let poolInfo = await fetchPoolInfo(connection, poolSeed);
 
     // // Deposit into Pool
     // let depositTxInstructions = await deposit(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
     //   sourceOwnerAccount.publicKey,
     //   sourceAssetKeys,
     //   // @ts-ignore
@@ -128,8 +125,6 @@ const test = async (): Promise<void> => {
   
     let [openOrderAccount, createPoolTxInstructions] = await createOrder(
       connection,
-      BONFIDABOT_PROGRAM_ID,
-      SERUM_PROGRAM_ID,
       poolInfo.seed,
       marketInfo.address,
       OrderSide.Ask,
@@ -155,8 +150,6 @@ const test = async (): Promise<void> => {
   
     // let cancelOrderTxInstruction = await cancelOrder(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
-    //   SERUM_PROGRAM_ID,
     //   poolInfo.seed,
     //   marketInfo.address,
     //   openOrderAccount.publicKey
@@ -171,23 +164,21 @@ const test = async (): Promise<void> => {
     // await sleep(5 * 1000);
 
 
-    let settleFundsTxInstructions = await settleFunds(
-      connection,
-      BONFIDABOT_PROGRAM_ID,
-      SERUM_PROGRAM_ID,
-      poolInfo.seed,
-      marketInfo.address,
-      OpenOrderAccount.address,
-      null,
-      );
+    // let settleFundsTxInstructions = await settleFunds(
+    //   connection,
+    //   poolInfo.seed,
+    //   marketInfo.address,
+    //   OpenOrderAccount.address,
+    //   null,
+    //   );
       
-    await signAndSendTransactionInstructions(
-        connection,
-        [],
-        payerAccount,
-        settleFundsTxInstructions
-      );
-    console.log("Settled Funds")
+    // await signAndSendTransactionInstructions(
+    //     connection,
+    //     [],
+    //     payerAccount,
+    //     settleFundsTxInstructions
+    //   );
+    // console.log("Settled Funds")
   
     // let sourcePoolTokenKey = await findAssociatedTokenAddress(
     //   sourceOwnerAccount.publicKey,
@@ -196,7 +187,6 @@ const test = async (): Promise<void> => {
         
     // let redeemTxInstruction = await redeem(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
     //   sourceOwnerAccount.publicKey,
     //   sourcePoolTokenKey,
     //   sourceAssetKeys,
@@ -216,7 +206,6 @@ const test = async (): Promise<void> => {
     
     // let collectFeesTxInstruction = await collectFees(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
     //   [poolInfo.seed]
     // );
     
@@ -235,7 +224,6 @@ const test = async (): Promise<void> => {
 
     // singleTokenDeposit(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
     //   sourceOwnerAccount,
     //   sourceAssetKeys[0],
     //   1,
@@ -248,7 +236,6 @@ const test = async (): Promise<void> => {
    
     // let fetchedSeeds = await getPoolsSeedsBySigProvider(
     //   connection,
-    //   BONFIDABOT_PROGRAM_ID,
     //   undefined
     // );
     // console.log();
@@ -257,7 +244,7 @@ const test = async (): Promise<void> => {
     // console.log();
     
     // let poolSeed = bs58.decode("GaVkjAUzWJAHPkwfSWge5npL8BR369taqMMQZ2ksYWbT");
-    // let poolInfo = await fetchPoolInfo(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // let poolInfo = await fetchPoolInfo(connection, poolSeed);
     
     // console.log("Pool Info:")
     // console.log({
@@ -274,7 +261,7 @@ const test = async (): Promise<void> => {
     // });
     // console.log();
 
-    // let poolBalances = await fetchPoolBalances(connection, BONFIDABOT_PROGRAM_ID, poolSeed);
+    // let poolBalances = await fetchPoolBalances(connection, poolSeed);
     // console.log("Total Pooltokens", poolBalances[0]);
     // console.log("Pool Balances:")
     // console.log(poolBalances[1].map(b => { return {

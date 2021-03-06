@@ -79,22 +79,16 @@ export const PUBLIC_POOLS_SEEDS = [
 
 export async function createPool(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
-  serumProgramId: PublicKey,
   sourceOwnerKey: PublicKey,
   sourceAssetKeys: Array<PublicKey>,
   signalProviderKey: PublicKey,
   depositAmounts: Array<number>,
   maxNumberOfAssets: number,
-  number_of_markets: Numberu16,
   markets: Array<PublicKey>,
   payer: PublicKey,
   feeCollectionPeriod: Numberu64,
-  feeRatio: Numberu16,
+  feePercentage: number,
 ): Promise<[Uint8Array, TransactionInstruction[]]> {
-  // TODO deduce number of markets from markets
-  // TODO Remove horadcoded ids from binding inputs
-  // TODO Take in quantity percentage (0 to 100), convert to 2e16 ratio
 
   // Find a valid pool seed
   let poolSeed: Uint8Array;
@@ -106,13 +100,13 @@ export async function createPool(
     poolSeed = crypto.randomBytes(32);
     [poolKey, bump] = await PublicKey.findProgramAddress(
       [poolSeed.slice(0, 31)],
-      bonfidaBotProgramId,
+      BONFIDABOT_PROGRAM_ID,
     );
     poolSeed[31] = bump;
     try {
       await PublicKey.createProgramAddress(
         [poolSeed, array_one],
-        bonfidaBotProgramId,
+        BONFIDABOT_PROGRAM_ID,
       );
       break;
     } catch (e) {
@@ -121,25 +115,26 @@ export async function createPool(
   }
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   console.log('Pool seed: ', bs58.encode(poolSeed));
   console.log('Pool key: ', poolKey.toString());
   console.log('Mint key: ', poolMintKey.toString());
 
   // Initialize the pool
-  // let numberOfMarkets = new Numberu16(markets.length)
+  // @ts-ignore
+  let numberOfMarkets = new Numberu16(markets.length)
   let initTxInstruction = initInstruction(
     TOKEN_PROGRAM_ID,
     SystemProgram.programId,
     SYSVAR_RENT_PUBKEY,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     poolMintKey,
     payer,
     poolKey,
     [poolSeed],
     maxNumberOfAssets,
-    number_of_markets,
+    numberOfMarkets,
   );
 
   // Create the pool asset accounts
@@ -175,9 +170,11 @@ export async function createPool(
   targetPTInstruction? txInstructions.push(targetPTInstruction) : null;
 
   // Create the pool
+  // @ts-ignore
+  let feeRatioU16 = new Numberu16(2**16 * feePercentage / 100);
   let createTxInstruction = createInstruction(
     TOKEN_PROGRAM_ID,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     SYSVAR_CLOCK_PUBKEY,
     poolMintKey,
     poolKey,
@@ -186,12 +183,12 @@ export async function createPool(
     targetPoolTokenKey,
     sourceOwnerKey,
     sourceAssetKeys,
-    serumProgramId,
+    SERUM_PROGRAM_ID,
     signalProviderKey,
     depositAmounts,
     markets,
     feeCollectionPeriod,
-    feeRatio,
+    feeRatioU16,
   );
   txInstructions = txInstructions.concat(assetTxInstructions);
   txInstructions.push(createTxInstruction);
@@ -201,7 +198,6 @@ export async function createPool(
 
 export async function deposit(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   sourceOwnerKey: PublicKey,
   sourceAssetKeys: Array<PublicKey>,
   poolTokenAmount: Numberu64,
@@ -212,13 +208,13 @@ export async function deposit(
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(
     poolSeed,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     poolSeed.concat(array_one),
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -279,7 +275,7 @@ export async function deposit(
 
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     sigProviderFeeReceiverKey,
     bonfidaFeeReceiverKey,
     bonfidaBuyAndBurnKey,
@@ -296,7 +292,6 @@ export async function deposit(
 }
 
 /*
-* 
 *
 * @param 
 * @param 
@@ -306,26 +301,22 @@ export async function deposit(
 */
 export async function createOrder(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
-  serumProgramId: PublicKey,
   poolSeed: Buffer | Uint8Array,
   market: PublicKey,
   side: OrderSide,
   limitPrice: Numberu64,
-  maxQuantity: Numberu16,
+  maxQuantityPercentage: number,
   orderType: OrderType,
   clientId: Numberu64,
   selfTradeBehavior: SelfTradeBehavior,
   srmDiscountKey: PublicKey | null,
   payerKey: PublicKey,
 ): Promise<[Account, TransactionInstruction[]]> {
-  // TODO round price input to decimal of market precision
-  // TODO Set maxQuantity to be a percentage float
 
   // Find the pool key
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -407,16 +398,19 @@ export async function createOrder(
     fromPubkey: payerKey,
     newAccountPubkey: openOrderKey,
     lamports: rent,
-    space: 3228, //TODO get rid of the magic numbers
-    programId: serumProgramId,
+    space: 3228,
+    programId: SERUM_PROGRAM_ID,
   };
   let createOpenOrderAccountInstruction = SystemProgram.createAccount(
     createAccountParams,
   );
   console.log('Open Order key: ', openOrderKey.toString());
 
+  // @ts-ignore
+  let maxQuantityRatioU16 = new Numberu16(2**16 * maxQuantityPercentage / 100);
+
   let createOrderTxInstruction = createOrderInstruction(
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     poolHeader.signalProvider,
     market,
     sourcePoolAssetKey,
@@ -432,7 +426,7 @@ export async function createOrder(
     marketData.coinVaultKey,
     marketData.pcVaultKey,
     TOKEN_PROGRAM_ID,
-    serumProgramId,
+    SERUM_PROGRAM_ID,
     SYSVAR_RENT_PUBKEY,
     srmDiscountKey,
     [poolSeed],
@@ -443,7 +437,7 @@ export async function createOrder(
     marketData.coinLotSize,
     marketData.pcLotSize,
     targetMintKey,
-    maxQuantity,
+    maxQuantityRatioU16,
     orderType,
     clientId,
     selfTradeBehavior,
@@ -463,8 +457,6 @@ export async function createOrder(
 
 export async function settleFunds(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
-  dexProgramKey: PublicKey,
   poolSeed: Buffer | Uint8Array,
   market: PublicKey,
   openOrdersKey: PublicKey,
@@ -472,13 +464,13 @@ export async function settleFunds(
 ): Promise<TransactionInstruction[]> {
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
@@ -523,11 +515,11 @@ export async function settleFunds(
 
   let vaultSignerKey = await PublicKey.createProgramAddress(
     [market.toBuffer(), marketData.vaultSignerNonce.toBuffer()],
-    dexProgramKey,
+    SERUM_PROGRAM_ID,
   );
 
   let settleFundsTxInstruction = settleFundsInstruction(
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     market,
     openOrdersKey,
     poolKey,
@@ -538,7 +530,7 @@ export async function settleFunds(
     pcPoolAssetKey,
     vaultSignerKey,
     TOKEN_PROGRAM_ID,
-    dexProgramKey,
+    SERUM_PROGRAM_ID,
     srmReferrerKey,
     [poolSeed],
     pcPoolAssetIndex,
@@ -550,8 +542,6 @@ export async function settleFunds(
 
 export async function cancelOrder(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
-  dexProgramKey: PublicKey,
   poolSeed: Buffer | Uint8Array,
   market: PublicKey,
   openOrdersKey: PublicKey,
@@ -559,7 +549,7 @@ export async function cancelOrder(
   // Find the pool key
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -574,7 +564,7 @@ export async function cancelOrder(
   let openOrders = await OpenOrders.load(
     connection,
     openOrdersKey,
-    dexProgramKey,
+    SERUM_PROGRAM_ID,
   );
   let orders = openOrders.orders;
 
@@ -589,7 +579,7 @@ export async function cancelOrder(
   let side = 1 - orderId.toBuffer()[7];
 
   let cancelOrderTxInstruction = await cancelOrderInstruction(
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     signalProviderKey,
     market,
     openOrdersKey,
@@ -597,7 +587,7 @@ export async function cancelOrder(
     marketData.bidsKey,
     marketData.asksKey,
     poolKey,
-    dexProgramKey,
+    SERUM_PROGRAM_ID,
     [poolSeed],
     side,
     orderId,
@@ -608,7 +598,6 @@ export async function cancelOrder(
 
 export async function redeem(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   sourcePoolTokenOwnerKey: PublicKey,
   sourcePoolTokenKey: PublicKey,
   targetAssetKeys: Array<PublicKey>,
@@ -619,13 +608,13 @@ export async function redeem(
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(
     poolSeed,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     poolSeed.concat(array_one),
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -647,7 +636,7 @@ export async function redeem(
 
   let redeemTxInstruction = redeemInstruction(
     TOKEN_PROGRAM_ID,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     SYSVAR_CLOCK_PUBKEY,
     poolMintKey,
     poolKey,
@@ -663,19 +652,18 @@ export async function redeem(
 
 export async function collectFees(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
 ): Promise<TransactionInstruction[]> {
   // Find the pool key and mint key
   let poolKey = await PublicKey.createProgramAddress(
     poolSeed,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     poolSeed.concat(array_one),
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
 
   let poolInfo = await connection.getAccountInfo(poolKey);
@@ -701,7 +689,7 @@ export async function collectFees(
   let collectFeesTxInstruction = collectFeesInstruction(
     TOKEN_PROGRAM_ID,
     SYSVAR_CLOCK_PUBKEY,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     poolKey,
     poolMintKey,
     sigProviderFeeReceiverKey,

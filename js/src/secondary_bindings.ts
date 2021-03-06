@@ -47,18 +47,17 @@ export type PoolInfo = {
 
 export async function fetchPoolInfo(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   poolSeed: Buffer | Uint8Array,
 ): Promise<PoolInfo> {
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let poolData = await connection.getAccountInfo(poolKey);
   if (!poolData) {
@@ -100,18 +99,17 @@ export async function fetchPoolInfo(
 // Fetch the balances of the poolToken and the assets (in the same order as in the poolData)
 export async function fetchPoolBalances(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   poolSeed: Buffer | Uint8Array,
 ): Promise<[TokenAmount, Array<PoolAssetBalance>]> {
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let poolData = await connection.getAccountInfo(poolKey);
   if (!poolData) {
@@ -146,7 +144,6 @@ export async function fetchPoolBalances(
 // by intermediately trading with serum in order to reach the pool asset ratio
 export async function singleTokenDeposit(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   sourceOwner: Wallet,
   sourceTokenKey: PublicKey,
   // The amount of source tokens to invest into pool
@@ -156,12 +153,12 @@ export async function singleTokenDeposit(
 ) {
   // Fetch Poolasset mints
   console.log("Creating source asset accounts");
-  let poolKey = await PublicKey.createProgramAddress([poolSeed], bonfidaBotProgramId);
+  let poolKey = await PublicKey.createProgramAddress([poolSeed], BONFIDABOT_PROGRAM_ID);
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   let poolInfo = await connection.getAccountInfo(poolKey);
   if (!poolInfo) {
@@ -459,7 +456,7 @@ export async function singleTokenDeposit(
   console.log("Execute Buy in");
   let depositTxInstruction = depositInstruction(
     TOKEN_PROGRAM_ID,
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
     sigProviderFeeReceiverKey,
     bonfidaFeeReceiverKey,
     bonfidaBuyAndBurnKey,
@@ -486,13 +483,12 @@ export async function singleTokenDeposit(
 // Gets all poolseeds if no signal provider was given
 export async function getPoolsSeedsBySigProvider(
   connection: Connection,
-  bonfidaBotProgramId: PublicKey,
   signalProviderKey?: PublicKey,
 ): Promise<Buffer[]> {
   const filter = [];
   // @ts-ignore
   const resp = await connection._rpcRequest('getProgramAccounts', [
-    bonfidaBotProgramId.toBase58(),
+    BONFIDABOT_PROGRAM_ID.toBase58(),
     {
       commitment: connection.commitment,
       filter,
@@ -523,13 +519,12 @@ export async function getPoolsSeedsBySigProvider(
 // Returns the pool token mint given a pool seed
 export const getPoolTokenMintFromSeed = async (
   poolSeed: Buffer | Uint8Array,
-  bonfidaBotProgramId: PublicKey,
 ) => {
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
   let poolMintKey = await PublicKey.createProgramAddress(
     [poolSeed, array_one],
-    bonfidaBotProgramId,
+    BONFIDABOT_PROGRAM_ID,
   );
   return poolMintKey;
 }
