@@ -77,6 +77,23 @@ export const PUBLIC_POOLS_SEEDS = [
 
 /////////////////////////////////
 
+/**
+ * Returns the solana instructions to create a new pool by performing the first deposit of any number of different tokens
+ * and setting the pubkey of the signal provider. The first deposit will fix the initial
+ * value of 1 pooltoken (credited to the target) with respect to the deposited tokens.
+ * (Signed by the sourceOwner account)
+ * 
+ * @param connection The connection object to the rpc node
+ * @param sourceOwnerKey The address of the wallet that owns the tokens to be invested in the pool
+ * @param sourceAssetKeys The adresses of the token accounts that hold the tokens to be invested in the pool
+ * @param signalProviderKey The key of the account that will have the right to trade with the funds of the pool
+ * @param depositAmounts An array of the amounts that should be invested for each token, in the same order as the sourceAssetKeys
+ * @param maxNumberOfAssets The maximum number of different tokens the pool will ever be able to hold (solana memory allocation is fixed)
+ * @param markets An array of the addresses of the serum markets that the signalProvider will be able to trade on
+ * @param payer The address of the account that should pay for the allocation fees
+ * @param feeCollectionPeriod The smallest period in seconds after which the trading fees can be payed out again (minimum is 604800 s or 1 week)
+ * @param feePercentage The percentage (a number from 0 to 100) of the pool assets that should be collected as fees
+ */
 export async function createPool(
   connection: Connection,
   sourceOwnerKey: PublicKey,
@@ -196,6 +213,22 @@ export async function createPool(
   return [poolSeed, txInstructions];
 }
 
+
+/**
+ * Returns the solana instructions to buy into the pool. The source deposits tokens into the pool and the target receives
+ * a corresponding amount of pool-token in exchange. The program will try to
+ * maximize the deposit sum with regards to the amounts given by the source and
+ * the ratio of tokens present in the pool at that moment. Tokens can only be deposited
+ * in the exact ratio of tokens that are present in the pool.
+ * (Signed by the sourceOwnerKey)
+ * 
+ * @param connection The connection object to the rpc node
+ * @param sourceOwnerKey The address of the wallet that owns the tokens to be invested in the pool
+ * @param sourceAssetKeys The adresses of the token accounts that hold the tokens to be invested in the pool
+ * @param poolTokenAmount The amount of pooltokens that should be bought (ie the amount of tokens that should be invested)
+ * @param poolSeed The seed of the pool that should be invested into
+ * @param payer The address of the account that should pay for the allocation fees
+ */
 export async function deposit(
   connection: Connection,
   sourceOwnerKey: PublicKey,
@@ -291,14 +324,22 @@ export async function deposit(
   return createTargetsTxInstructions.concat(depositTxInstruction);
 }
 
-/*
-*
-* @param 
-* @param 
-* @param 
-* @param 
-*
-*/
+/**
+ * Returns the solana instructions to create a new serum order for the pool.
+ * (Signed by the SignalProvider account of the pool)
+ * 
+ * @param connection The connection object to the rpc node
+ * @param poolSeed The seed of the pool that should be traded on
+ * @param market The address of the serum market to trade on
+ * @param side The side of the order (ask or bid)
+ * @param limitPrice The limit price for the order
+ * @param maxQuantityPercentage The percentage (a number from 0 to 100) of the pool assets that should be invested
+ * @param orderType For now, all orders are to be set as type ImmediateOrCancel
+ * @param clientId The serum clientId for the order, can be set as 0
+ * @param selfTradeBehavior The serum self trade behaviour for the order
+ * @param srmDiscountKey The address of the srm discount key for the order (optional)
+ * @param payerKey The address of the account that should pay for the allocation fees
+ */
 export async function createOrder(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -455,6 +496,17 @@ export async function createOrder(
   return [openOrderAccount, instructions];
 }
 
+
+/**
+ * Returns the solana instructions to a crank to settle funds out of one of the pool's active OpenOrders accounts.
+ * (Permissionless)
+ * 
+ * @param connection The connection object to the rpc node
+ * @param poolSeed The seed of the pool that should be settled
+ * @param market The address of the serum market on which the order is
+ * @param openOrdersKey The address of the serum openOrder account to settle
+ * @param srmReferrerKey The address of the referer that should receive the serum trading fees
+ */
 export async function settleFunds(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -540,6 +592,14 @@ export async function settleFunds(
   return [settleFundsTxInstruction];
 }
 
+/**
+ * This method is obsolete for now as all orders can only be passed as ImmediateOrCancel
+ * 
+ * @param connection 
+ * @param poolSeed 
+ * @param market 
+ * @param openOrdersKey 
+ */
 export async function cancelOrder(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -596,6 +656,21 @@ export async function cancelOrder(
   return [cancelOrderTxInstruction];
 }
 
+
+/**
+ * Returns the solana instructions to buy out of the pool by redeeming (burning) pooltokens.
+ * This instruction needs to be executed after (and within the same transaction)
+ * having settled on all possible open orders for the pool.
+ * This because as long as an order is open for the pool, redeeming is impossible.
+ * (Signed by the owner of the pooltokens)
+ * 
+ * @param connection The connection object to the rpc node
+ * @param sourcePoolTokenOwnerKey The address of the account that owns the pooltokens to be redeemed
+ * @param sourcePoolTokenKey The address that holds the pooltokens
+ * @param targetAssetKeys An array of addresses to which the pool asset tokens are payed out to
+ * @param poolSeed The seed of the pool that should be redeemed from
+ * @param poolTokenAmount The amount of pooltokens that should be used (ie the amount of tokens that should be bought back)
+ */
 export async function redeem(
   connection: Connection,
   sourcePoolTokenOwnerKey: PublicKey,
@@ -650,6 +725,15 @@ export async function redeem(
   return [redeemTxInstruction];
 }
 
+
+ /**
+  *  Returns the solana instructions to collect the fees from the pool.
+  *  See the readme for the payout destinations.
+  * (Permissionless)
+  * 
+  * @param connection The connection object to the rpc node
+  * @param poolSeed The seed of the pool
+  */
 export async function collectFees(
   connection: Connection,
   poolSeed: Array<Buffer | Uint8Array>,
