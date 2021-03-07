@@ -308,7 +308,7 @@ activate the `collectFees` permissionless crank.
 | Beneficiary       | Fee Proportion |
 | ----------------- | -------------- |
 | Signal provider   | 50%            |
-| Bonfida Ltd.      | 25%            |
+| Bonfida           | 25%            |
 | FIDA buy and burn | 25%            |
 
 ```ts
