@@ -30,7 +30,7 @@ yarn add bonfida-bot
 
 There are two scenarios in which a pool can find itself in a _locked_ state :
 
-- There are pending orders : some Serun orders have not yet been settled with the `settleFunds` instruction.
+- There are pending orders : some Serum orders have not yet been settled with the `settleFunds` instruction.
 - There are fees to collect. At intervals greater than a week, signal provider and Bonfida fees must be extracted from the pool.
 
 However, a _locked_ pool can be unlocked with a sequence of permissionless operations. When the pool has pending orders, it is often possible to
