@@ -339,6 +339,9 @@ export async function deposit(
  * @param selfTradeBehavior The serum self trade behaviour for the order
  * @param srmDiscountKey The address of the srm discount key for the order (optional)
  * @param payerKey The address of the account that should pay for the allocation fees
+ * @param amountToTrade If this optional argument is given, it will overwrite the maxQuantityPercentage and fix
+ *  the size of the order in base quantity. If you want to trade one and a half FIDA on FIDA/USDC for example,
+ *  give 1.5 as an input here.
  */
 export async function createOrder(
   connection: Connection,
@@ -352,6 +355,7 @@ export async function createOrder(
   selfTradeBehavior: SelfTradeBehavior,
   srmDiscountKey: PublicKey | null,
   payerKey: PublicKey,
+  amountToTrade?: number,
 ): Promise<[Account, TransactionInstruction[]]> {
 
   // Find the pool key
@@ -447,8 +451,13 @@ export async function createOrder(
   );
   console.log('Open Order key: ', openOrderKey.toString());
 
+  
+  // Calcutlate the amount to trade as a ratio fo the pool balance
+  let sourcePoolAssetBalance = (await connection.getTokenAccountBalance(sourcePoolAssetKey)).value;
   // @ts-ignore
-  let maxQuantityRatioU16 = new Numberu16(2**16 * maxQuantityPercentage / 100);
+  let maxQuantityRatioU16 = (!amountToTrade)? new Numberu16(2**16 * maxQuantityPercentage / 100)
+  // @ts-ignore
+  : new Numberu16((2**16 * amountToTrade / (sourcePoolAssetBalance['uiAmount'])));
 
   let createOrderTxInstruction = createOrderInstruction(
     BONFIDABOT_PROGRAM_ID,
