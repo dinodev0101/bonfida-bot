@@ -41,7 +41,7 @@ impl Clone for Actor {
 }
 
 #[cfg(feature = "fuzz")]
-impl Arbitrary for Actor {
+impl Arbitrary<'_> for Actor {
     fn arbitrary(_: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Actor {
             key: Keypair::new(),
@@ -80,7 +80,7 @@ pub enum Signal {
 }
 
 #[cfg(feature = "fuzz")]
-impl Arbitrary for Signal {
+impl Arbitrary<'_> for Signal {
     fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
         let result = match u.choose(&[0, 1])? {
             0 => Self::Idle,
@@ -119,7 +119,7 @@ pub struct Execution {
 }
 
 #[cfg(feature = "fuzz")]
-impl Arbitrary for Execution {
+impl Arbitrary<'_> for Execution {
     fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
         let number_of_subscribers: u8 = u.arbitrary::<u8>()? >> 4;
         let mut subscribers = Vec::with_capacity(number_of_subscribers as usize);

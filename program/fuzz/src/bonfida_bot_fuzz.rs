@@ -6,6 +6,7 @@ use solana_program_test::{ProgramTest, find_file, read_file};
 use solana_sdk::{account::Account, signature::{Keypair, Signer}};
 
 use bonfida_bot::common::simulation::Execution;
+use arbitrary::Arbitrary;
 
 const SRM_MINT_KEY: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
 
