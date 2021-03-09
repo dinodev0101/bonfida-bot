@@ -39,7 +39,7 @@ import bs58 from 'bs58';
 import * as crypto from "crypto";
 import { Order } from '@project-serum/serum/lib/market';
 import { BONFIDABOT_PROGRAM_ID, cancelOrder, collectFees, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
-import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, singleTokenDeposit } from './secondary_bindings';
+import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, settlePool, singleTokenDeposit } from './secondary_bindings';
 import { SOURCE_OWNER_ACCOUNT } from './secret';
 
 
@@ -220,20 +220,20 @@ const test = async (): Promise<void> => {
 
     //////////////////////////////////////////////
 
-    // let poolSeed = bs58.decode("3vfRZF75MoYnhbne399ASdkG7JNXJQ5wZ3AYE2kDJwnn");
+    let poolSeed = bs58.decode("FPQLQ9rUWxpSeyXZ81ydtPeKYmeLWqfuvchVi44nd4cM");
 
-    // singleTokenDeposit(
-    //   connection,
-    //   sourceOwnerAccount,
-    //   sourceAssetKeys[0],
-    //   1,
-    //   poolSeed,
-    //   payerAccount
-    // )
+    await singleTokenDeposit(
+      connection,
+      sourceOwnerAccount,
+      sourceAssetKeys[1],
+      0.5,
+      poolSeed,
+      payerAccount
+    )
 
     //////////////////////////////////////////////
 
-   
+    
     let fetchedSeeds = await getPoolsSeedsBySigProvider(
       connection,
       undefined
@@ -243,7 +243,7 @@ const test = async (): Promise<void> => {
     console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
     console.log();
     
-    let poolSeed = bs58.decode("GaVkjAUzWJAHPkwfSWge5npL8BR369taqMMQZ2ksYWbT");
+    // let poolSeed = bs58.decode("2JAGoviegvZeVnvtdHTpMW5jm4zrehqmpoUPXEtNi5xa");
     let poolInfo = await fetchPoolInfo(connection, poolSeed);
     
     console.log("Pool Info:")

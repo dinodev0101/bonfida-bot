@@ -326,7 +326,8 @@ export async function deposit(
 
 /**
  * Returns the solana instructions to create a new serum order for the pool.
- * (Signed by the SignalProvider account of the pool)
+ * (Signed by the SignalProvider account of the pool and the OpenOrder Account
+ * returned by this function)
  * 
  * @param connection The connection object to the rpc node
  * @param poolSeed The seed of the pool that should be traded on
@@ -670,7 +671,7 @@ export async function cancelOrder(
  * Returns the solana instructions to buy out of the pool by redeeming (burning) pooltokens.
  * This instruction needs to be executed after (and within the same transaction)
  * having settled on all possible open orders for the pool.
- * This because as long as an order is open for the pool, redeeming is impossible.
+ * This is because as long as an order is open for the pool, redeeming is impossible.
  * (Signed by the owner of the pooltokens)
  * 
  * @param connection The connection object to the rpc node

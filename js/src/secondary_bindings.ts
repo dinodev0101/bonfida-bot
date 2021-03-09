@@ -7,7 +7,7 @@ import {
   TokenAmount,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, AccountLayout, u64 } from '@solana/spl-token';
-import { Market, TOKEN_MINTS, MARKETS } from '@project-serum/serum';
+import { Market, TOKEN_MINTS, MARKETS, OpenOrders } from '@project-serum/serum';
 import { depositInstruction } from './instructions';
 import {
   findAssociatedTokenAddress,
@@ -28,7 +28,7 @@ import {
   unpack_markets,
 } from './state';
 import { PoolAssetBalance } from './types';
-import { BONFIDABOT_PROGRAM_ID, BONFIDA_BNB_KEY, BONFIDA_FEE_KEY, createPool, SERUM_PROGRAM_ID } from './main';
+import { BONFIDABOT_PROGRAM_ID, BONFIDA_BNB_KEY, BONFIDA_FEE_KEY, createPool, SERUM_PROGRAM_ID, settleFunds } from './main';
 import { connect } from 'http2';
 import Wallet from '@project-serum/sol-wallet-adapter';
 
@@ -45,6 +45,76 @@ export type PoolInfo = {
   authorizedMarkets: Array<PublicKey>;
 };
 
+// TODO singleTokenDeposit optim + singleTokenRedeem
+
+
+/**
+ * Returns the solana instructions to settle all open orders for a given pool.
+ * If the returned transaction array is too large for it to be sent on Solana, 
+ * you may need to process it batch-wise.
+ * 
+ * @param connection 
+ * @param poolSeed 
+ */
+export async function settlePool(
+  connection: Connection,
+  poolSeed: Buffer | Uint8Array,
+): Promise<TransactionInstruction[]> {
+  let poolKey = await PublicKey.createProgramAddress(
+    [poolSeed],
+    BONFIDABOT_PROGRAM_ID,
+  );
+  let array_one = new Uint8Array(1);
+  array_one[0] = 1;
+  
+  let poolData = await connection.getAccountInfo(poolKey);
+  if (!poolData) {
+    throw 'Pool account is unavailable';
+  }
+  let poolHeader = PoolHeader.fromBuffer(
+    poolData.data.slice(0, PoolHeader.LEN),
+  );
+  
+  let authorizedMarkets = unpack_markets(
+    poolData.data.slice(
+      PoolHeader.LEN,
+      PoolHeader.LEN + Number(poolHeader.numberOfMarkets) * PUBKEY_LENGTH,
+    ),
+    poolHeader.numberOfMarkets,
+  );
+
+  let instructions: TransactionInstruction[] = [];
+  for (let authorizedMarket of authorizedMarkets) {
+    const market = await Market.load(
+      connection,
+      authorizedMarket,
+      {},
+      SERUM_PROGRAM_ID,
+    );
+  
+    const openOrdersAccounts = await market.findOpenOrdersAccountsForOwner(
+      connection,
+      poolKey,
+    );
+    console.log(openOrdersAccounts.length);
+    for (let openOrder of openOrdersAccounts) {
+      instructions.push((await settleFunds(
+        connection,
+        poolSeed,
+        authorizedMarket,
+        openOrder.address,
+        null
+      ))[0]); 
+    }
+  }
+  return instructions;
+}
+
+/**
+ * Returns a structure containing most informations that one can parse from a pools state.
+ * @param connection 
+ * @param poolSeed 
+ */
 export async function fetchPoolInfo(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -96,7 +166,12 @@ export async function fetchPoolInfo(
   return poolInfo;
 }
 
-// Fetch the balances of the poolToken and the assets (in the same order as in the poolData)
+/**
+ * Fetch the balances of the poolToken and the assets (returned in the same order as in the poolData)
+ * 
+ * @param connection 
+ * @param poolSeed
+ */ 
 export async function fetchPoolBalances(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -138,16 +213,26 @@ export async function fetchPoolBalances(
 
   return [poolTokenSupply, assetBalances];
 }
- 
 
-// This method lets the user deposit an arbitrary token into the pool
-// by intermediately trading with serum in order to reach the pool asset ratio
+
+/**
+ * This method lets the user deposit an arbitrary token into the pool
+ * by intermediately trading with serum in order to reach the pool asset ratio.
+ * (WIP)
+ * 
+ * @param connection 
+ * @param sourceOwner 
+ * @param sourceTokenKey 
+ * @param user_amount 
+ * @param poolSeed 
+ * @param payer 
+ */
 export async function singleTokenDeposit(
   connection: Connection,
   sourceOwner: Wallet,
   sourceTokenKey: PublicKey,
   // The amount of source tokens to invest into pool
-  amount: number,
+  user_amount: number,
   poolSeed: Buffer | Uint8Array,
   payer: Account,
 ) {
@@ -184,6 +269,8 @@ export async function singleTokenDeposit(
   let tokenSymbol = TOKEN_MINTS[
     TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
   ].name;
+  let precision = await (await connection.getTokenAccountBalance(sourceTokenKey)).value.decimals;
+  let amount = precision * user_amount;
 
   let midPriceUSDC: number, sourceUSDCKey: PublicKey;
   if (tokenSymbol != "USDC") {
@@ -240,8 +327,8 @@ export async function singleTokenDeposit(
       );
     }
 
-    // TODO potentially wait for match
-    await sleep(30 * 1000);
+    // Wait for the Serum Event Queue to be processed
+    await sleep(3 * 1000);
 
     // Settle the sourceToken to USDC transfer
     console.log("Settling order");
@@ -348,6 +435,10 @@ export async function singleTokenDeposit(
         throw 'Chosen Market is deprecated';
       }
 
+      if (poolAssetAmounts[i] == 0) {
+        continue
+      }
+
       let [assetMarket, assetMidPrice] = await getMidPrice(
         connection,
         assetMarketInfo.address,
@@ -369,7 +460,7 @@ export async function singleTokenDeposit(
         size: assetAmountToBuy,
         orderType: 'ioc',
       });
-      assetMarket.placeOrder(connection, {
+      await assetMarket.placeOrder(connection, {
         owner: sourceOwner,
         payer: sourceUSDCKey,
         side: 'buy',
@@ -386,8 +477,8 @@ export async function singleTokenDeposit(
     }
   }
 
-  // TODO potentially wait for match
-  await sleep(5 * 1000);
+  // Wait for the Serum Event Queue to be processed
+  await sleep(3 * 1000);
 
   // Settle the USDC to Poolassets transfers
   console.log("Settling the orders");
@@ -479,8 +570,13 @@ export async function singleTokenDeposit(
   ));
 }
 
-// Get the seeds of the pools managed by the given signal provider
-// Gets all poolseeds if no signal provider was given
+/**
+ * Returns the seeds of the pools managed by the given signal provider.
+ * Returns all poolseeds for the current BonfidaBot program if no signal provider was given.
+ * 
+ * @param connection 
+ * @param signalProviderKey 
+ */
 export async function getPoolsSeedsBySigProvider(
   connection: Connection,
   signalProviderKey?: PublicKey,
@@ -513,8 +609,6 @@ export async function getPoolsSeedsBySigProvider(
   }
   return poolSeeds;
 }
-
-// TODO 2nd layer bindings: singleTokenDeposit + settle all(find open orders by owner) + settle&redeem + cancelall
 
 // Returns the pool token mint given a pool seed
 export const getPoolTokenMintFromSeed = async (
