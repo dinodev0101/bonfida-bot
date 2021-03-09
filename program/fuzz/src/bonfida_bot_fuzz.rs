@@ -1,4 +1,4 @@
-use bonfida_bot::{common::utils::{Context, mint_bootstrap}, state::FIDA_MINT_KEY};
+use bonfida_bot::{common::utils::{Context, mint_bootstrap}};
 use futures::executor::block_on;
 use honggfuzz::fuzz;
 use solana_program::{pubkey::Pubkey};
@@ -20,12 +20,6 @@ fn main() {
         fuzz!(|e: Execution| {
             rt.block_on(e.run(&mut ctx, &mints));
         });
-    //     fuzz!(|v: Vec<u8>| {
-    //         let mut sum = 0;
-    //         for n in v {
-    //             sum = sum + n
-    //         }
-    //     });
     }
 
 }

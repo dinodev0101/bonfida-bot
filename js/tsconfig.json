@@ -13,7 +13,7 @@
       "module": "commonjs",
       "esModuleInterop": true,
       "allowSyntheticDefaultImports": true,
-      "target": "es6",
+      "target": "es2019",
       "outDir": "dist",
       "rootDir": "./src",
       "declaration": true,

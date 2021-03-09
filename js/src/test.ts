@@ -1,17 +1,23 @@
 import {
-    Account,
-    PublicKey,
-    SystemProgram,
-    SYSVAR_INSTRUCTIONS_PUBKEY,
-    SYSVAR_RENT_PUBKEY,
-    TransactionInstruction,
-    Connection,
-    sendAndConfirmTransaction,
-    SystemInstruction,
-    CreateAccountParams,
-  } from '@solana/web3.js';
+  Account,
+  PublicKey,
+  SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  SYSVAR_RENT_PUBKEY,
+  TransactionInstruction,
+  Connection,
+  sendAndConfirmTransaction,
+  SystemInstruction,
+  CreateAccountParams,
+} from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, Token, AccountLayout } from '@solana/spl-token';
-import { EVENT_QUEUE_LAYOUT, Market, MARKETS, REQUEST_QUEUE_LAYOUT, OpenOrders } from '@project-serum/serum';
+import {
+  EVENT_QUEUE_LAYOUT,
+  Market,
+  MARKETS,
+  REQUEST_QUEUE_LAYOUT,
+  OpenOrders,
+} from '@project-serum/serum';
 import {
   cancelOrderInstruction,
   createInstruction,
@@ -33,10 +39,19 @@ import {
   sleep,
   getMidPrice,
 } from './utils';
-import { OrderSide, OrderType, PoolAsset, PoolHeader, PoolStatus, PoolStatusID, SelfTradeBehavior, unpack_assets } from './state';
+import {
+  OrderSide,
+  OrderType,
+  PoolAsset,
+  PoolHeader,
+  PoolStatus,
+  PoolStatusID,
+  SelfTradeBehavior,
+  unpack_assets,
+} from './state';
 import { assert } from 'console';
 import bs58 from 'bs58';
-import * as crypto from "crypto";
+import * as crypto from 'crypto';
 import { Order } from '@project-serum/serum/lib/market';
 import { BONFIDABOT_PROGRAM_ID, cancelOrder, collectFees, createOrder, createPool, deposit, ENDPOINTS, redeem, SERUM_PROGRAM_ID, settleFunds } from './main';
 import { fetchPoolBalances, fetchPoolInfo, getPoolsSeedsBySigProvider, settlePool, singleTokenDeposit } from './secondary_bindings';

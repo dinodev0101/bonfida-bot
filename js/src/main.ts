@@ -49,6 +49,7 @@ import { OpenOrders } from '@project-serum/serum';
 export const ENDPOINTS = {
   mainnet: 'https://solana-api.projectserum.com',
   devnet: 'https://devnet.solana.com',
+  mainnet2: 'https://api.mainnet-beta.solana.com'
 };
 
 export const BONFIDABOT_PROGRAM_ID: PublicKey = new PublicKey(
