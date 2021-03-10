@@ -32,9 +32,10 @@ export interface PoolOrderInfo {
 }
 
 export interface PoolSettleInfo {
-  openOrderAccount: PublicKey,
-  transferredAmounts: { tokenMint: string, amount: number}[],
-  market: PublicKey
+  openOrderAccount: PublicKey;
+  transferredAmounts: { tokenMint: string; amount: number }[];
+  market: PublicKey,
+  transactionSlot: number;
 }
 
 export const loggablePoolOrderInfo = (o: PoolOrderInfo) => {

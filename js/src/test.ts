@@ -93,7 +93,7 @@ const test = async (): Promise<void> => {
   );
 
   let poolAddress = new PublicKey(
-    'BrPbdRD15yatzR12g7xyWR94xb36rUB8sCxdvCZdgL6q',
+    'Epm7J6aQQJNXMWfSiyFqHMkxQoozhNY8QTou85arjzko',
   );
 
   let poolData = (await connection.getAccountInfo(poolAddress))?.data;

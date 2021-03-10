@@ -66,6 +66,8 @@ export type PoolInfo = {
 };
 
 import bs58 from 'bs58';
+import { stringify } from 'querystring';
+import { getMintDecimals } from '@project-serum/serum/lib/market';
 
 // TODO singleTokenDeposit optim + singleTokenRedeem
 
@@ -679,8 +681,6 @@ export const parseCreateOrderInstruction = (
     let isTransferInstruction = instruction.data[0] === 3;
     return isTokenInstruction && isTransferInstruction;
   })[0];
-  console.log('Signature: %s', sig.signature);
-  console.log('Instruction data: %s', transferInstruction.data);
   let transferData = bs58.decode(transferInstruction.data);
   let transferredAmount = Numberu64.fromBuffer(
     transferData.slice(1, 9),
@@ -718,14 +718,15 @@ export const parseCreateOrderInstruction = (
 
 export const parseSettleInstruction = (
   instruction: TransactionInstruction,
+  sig: ConfirmedSignatureInfo,
   cpiInstructions: CompiledInstruction[],
   poolAssetMap: Map<string, string>,
   accounts: PublicKey[],
 ): PoolSettleInfo | undefined => {
-  console.log('Instruction keys length: %s', instruction.keys.length);
+  // console.log("Parsing cpi instructions for settle with %s", instruction.keys[1].pubkey.toBase58());
+  // console.log("isTokenInstruction | isTransferInstruction | settlesIntoPool")
   let transferInstructions = cpiInstructions.filter(i => {
     let innerData = bs58.decode(i.data);
-    console.log('Instruction program Id Index: %s', i.programIdIndex);
     let isTokenInstruction =
       accounts[i.programIdIndex].toBase58() === TOKEN_PROGRAM_ID.toBase58();
     let isTransferInstruction = innerData[0] === 3;
@@ -734,10 +735,9 @@ export const parseSettleInstruction = (
     let settlesIntoPool = poolAssetMap.has(
       instruction.keys[i.accounts[1]].pubkey.toBase58(),
     );
-    console.log(`IsTokenInstruction: ${isTokenInstruction}, isTransferInstruction: ${isTransferInstruction} (${innerData[0]}), settlesIntoPool: ${settlesIntoPool}`);
+    // console.log(`${isTokenInstruction ? 1 : 0}                  | ${isTransferInstruction ? 1 : 0}                     | ${settlesIntoPool ? 1 : 0}              `);
     return isTokenInstruction && isTransferInstruction && settlesIntoPool;
   });
-  console.log("Found %s relevant cpi instructions", transferInstructions.length);
   let transferredAmounts = transferInstructions.map(t => {
     return {
       tokenMint: poolAssetMap.get(
@@ -748,7 +748,8 @@ export const parseSettleInstruction = (
       ).toNumber(),
     };
   });
-  if (transferInstructions.length === 0) {
+  if (transferredAmounts.length === 0) {
+    console.log(`Empty settle for ${instruction.keys[1].pubkey.toBase58()}`)
     // Settle instruction did not settle any funds
     return undefined;
   }
@@ -758,6 +759,7 @@ export const parseSettleInstruction = (
     openOrderAccount: openOrderAccount,
     transferredAmounts: transferredAmounts,
     market: market,
+    transactionSlot: sig.slot
   };
 };
 
@@ -789,7 +791,7 @@ export const getPoolOrdersInfosFromSignature = async (
       })[0] as CompiledInnerInstruction | undefined)?.instructions;
       if (!innerInstructions) {
         // This means that the createOrder or settle instruction had no effect.
-        // console.log("Instruction has no effect");
+        // console.log("Instruction has no effect within transaction %s", bs58.encode(t?.transaction.signature as Buffer));
         return undefined;
       }
       if (i.data[0] == 3) {
@@ -807,20 +809,15 @@ export const getPoolOrdersInfosFromSignature = async (
       } else {
         let info = parseSettleInstruction(
           i,
+          sig,
           innerInstructions,
           poolAssetMap,
           accounts,
         );
         if (info) {
-          console.log('Found settle');
           return {
             type: 'settle',
-            info: parseSettleInstruction(
-              i,
-              innerInstructions,
-              poolAssetMap,
-              accounts,
-            ),
+            info: info,
           };
         }
       }
@@ -867,13 +864,18 @@ export const getPoolOrderInfos = async (
     )
   ).filter(o => o) as PoolInstructionInfo[][]).flat();
 
-  let openOrderAccounts = infos.map(o => o.info.openOrderAccount);
+  let openOrderAccounts = new Set(infos.map(o => o.info.openOrderAccount.toBase58()));
   for (const openOrderAccount of openOrderAccounts) {
     let history = infos.filter(
-      i => i.info.openOrderAccount.toBase58() === openOrderAccount.toBase58(),
-    );
+      i => i.info.openOrderAccount.toBase58() == openOrderAccount,
+    ).reverse();
+    // console.log(`Open order Account : ${openOrderAccount}`);
+    // console.log(`${history.length} transactions`);
 
-    let firstCreateOrder = infos.findIndex(o => o.type === 'createOrder');
+    // let sorted_history = history.sort((a, b) => {return a.info.transactionSlot - b.info.transactionSlot});
+    // console.log(sorted_history[0]===history[0])
+
+    let firstCreateOrder = history.findIndex(o => o.type === 'createOrder');
     history = history.slice(firstCreateOrder);
 
     let settleInstructions = history
@@ -881,13 +883,13 @@ export const getPoolOrderInfos = async (
       .map(o => o.info as PoolSettleInfo)
       .reverse();
     let createOrderInstructions = history
-      .filter(o => o.type === 'createOrder')
       .map(o => o.info as PoolOrderInfo);
     createOrderInstructions.forEach(o => {
       let settleInstruction = settleInstructions.pop();
       if (settleInstruction) {
         o.settledAmount = settleInstruction.transferredAmounts;
       }
+      return o;
     });
   }
   let createOrderInstructions = infos
@@ -903,12 +905,31 @@ export const getPoolOrderInfos = async (
       markets.set(key, await getMarketData(connection, i.market as PublicKey));
     }
   }
+
+  let tokenDecimals: Map<string, number> = new Map();
+  for (const [_, m] of markets) {
+    for (const mintKey of [m.coinMintKey.toBase58(), m.pcMintKey.toBase58()]) {
+      if (!tokenDecimals.has(mintKey)) {
+        tokenDecimals.set(
+          mintKey,
+          await getMintDecimals(connection, m.coinMintKey),
+        );
+      }
+    }
+  }
+
   infos_to_return = infos_to_return.map(i => {
     let marketData = markets.get(i.market.toBase58()) as MarketData;
     let limitPrice =
       (i.limitPrice * (marketData.pcLotSize as any).toNumber()) /
       (marketData.coinLotSize as any).toNumber();
     i.limitPrice = limitPrice;
+    let transferredMint = [marketData.pcMintKey, marketData.coinMintKey][i.side];
+    i.transferredAmount = i.transferredAmount / (10**(tokenDecimals.get(transferredMint.toBase58()) as number));
+    i.settledAmount.map(a => {
+      a.amount = a.amount / (10**(tokenDecimals.get(a.tokenMint) as number));
+      return a
+    });
     return i;
   });
 
