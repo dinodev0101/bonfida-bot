@@ -338,3 +338,4 @@ export const getAccountFromSeed = (seed: Buffer): Account => {
     .privateKey;
   return new Account(nacl.sign.keyPair.fromSeed(derivedSeed).secretKey);
 };
+

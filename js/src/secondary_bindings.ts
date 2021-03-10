@@ -6,6 +6,9 @@ import {
   Connection,
   TokenAmount,
   ConfirmedSignatureInfo,
+  CompiledInnerInstruction,
+  CompiledInstruction,
+  ConfirmedTransaction,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, AccountLayout, u64 } from '@solana/spl-token';
 import { Market, TOKEN_MINTS, MARKETS, OpenOrders } from '@project-serum/serum';
@@ -20,6 +23,7 @@ import {
   sleep,
   findAndCreateAssociatedAccount,
   Numberu16,
+  MarketData,
 } from './utils';
 import {
   OrderSide,
@@ -31,14 +35,19 @@ import {
   unpack_assets,
   unpack_markets,
 } from './state';
-import { PoolAssetBalance, PoolOrderInfo } from './types';
+import {
+  PoolAssetBalance,
+  PoolInstructionInfo,
+  PoolOrderInfo,
+  PoolSettleInfo,
+} from './types';
 import {
   BONFIDABOT_PROGRAM_ID,
   BONFIDA_BNB_KEY,
   BONFIDA_FEE_KEY,
   createPool,
   SERUM_PROGRAM_ID,
-  settleFunds
+  settleFunds,
 } from './main';
 import { connect } from 'http2';
 import Wallet from '@project-serum/sol-wallet-adapter';
@@ -56,16 +65,17 @@ export type PoolInfo = {
   authorizedMarkets: Array<PublicKey>;
 };
 
-// TODO singleTokenDeposit optim + singleTokenRedeem
+import bs58 from 'bs58';
 
+// TODO singleTokenDeposit optim + singleTokenRedeem
 
 /**
  * Returns the solana instructions to settle all open orders for a given pool.
- * If the returned transaction array is too large for it to be sent on Solana, 
+ * If the returned transaction array is too large for it to be sent on Solana,
  * you may need to process it batch-wise.
- * 
- * @param connection 
- * @param poolSeed 
+ *
+ * @param connection
+ * @param poolSeed
  */
 export async function settlePool(
   connection: Connection,
@@ -77,7 +87,7 @@ export async function settlePool(
   );
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
-  
+
   let poolData = await connection.getAccountInfo(poolKey);
   if (!poolData) {
     throw 'Pool account is unavailable';
@@ -85,7 +95,7 @@ export async function settlePool(
   let poolHeader = PoolHeader.fromBuffer(
     poolData.data.slice(0, PoolHeader.LEN),
   );
-  
+
   let authorizedMarkets = unpack_markets(
     poolData.data.slice(
       PoolHeader.LEN,
@@ -102,20 +112,24 @@ export async function settlePool(
       {},
       SERUM_PROGRAM_ID,
     );
-  
+
     const openOrdersAccounts = await market.findOpenOrdersAccountsForOwner(
       connection,
       poolKey,
     );
     console.log(openOrdersAccounts.length);
     for (let openOrder of openOrdersAccounts) {
-      instructions.push((await settleFunds(
-        connection,
-        poolSeed,
-        authorizedMarket,
-        openOrder.address,
-        null
-      ))[0]); 
+      instructions.push(
+        (
+          await settleFunds(
+            connection,
+            poolSeed,
+            authorizedMarket,
+            openOrder.address,
+            null,
+          )
+        )[0],
+      );
     }
   }
   return instructions;
@@ -123,8 +137,8 @@ export async function settlePool(
 
 /**
  * Returns a structure containing most informations that one can parse from a pools state.
- * @param connection 
- * @param poolSeed 
+ * @param connection
+ * @param poolSeed
  */
 export async function fetchPoolInfo(
   connection: Connection,
@@ -179,10 +193,10 @@ export async function fetchPoolInfo(
 
 /**
  * Fetch the balances of the poolToken and the assets (returned in the same order as in the poolData)
- * 
- * @param connection 
+ *
+ * @param connection
  * @param poolSeed
- */ 
+ */
 export async function fetchPoolBalances(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
@@ -225,18 +239,17 @@ export async function fetchPoolBalances(
   return [poolTokenSupply, assetBalances];
 }
 
-
 /**
  * This method lets the user deposit an arbitrary token into the pool
  * by intermediately trading with serum in order to reach the pool asset ratio.
  * (WIP)
- * 
- * @param connection 
- * @param sourceOwner 
- * @param sourceTokenKey 
- * @param user_amount 
- * @param poolSeed 
- * @param payer 
+ *
+ * @param connection
+ * @param sourceOwner
+ * @param sourceTokenKey
+ * @param user_amount
+ * @param poolSeed
+ * @param payer
  */
 export async function singleTokenDeposit(
   connection: Connection,
@@ -280,10 +293,13 @@ export async function singleTokenDeposit(
   let tokenData = Buffer.from(tokenInfo.data);
   const tokenMint = new PublicKey(AccountLayout.decode(tokenData).mint);
   const tokenInitialBalance: number = AccountLayout.decode(tokenData).amount;
-  let tokenSymbol = TOKEN_MINTS[
-    TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
-  ].name;
-  let precision = await (await connection.getTokenAccountBalance(sourceTokenKey)).value.decimals;
+  let tokenSymbol =
+    TOKEN_MINTS[
+      TOKEN_MINTS.map(t => t.address.toString()).indexOf(tokenMint.toString())
+    ].name;
+  let precision = await (
+    await connection.getTokenAccountBalance(sourceTokenKey)
+  ).value.decimals;
   let amount = precision * user_amount;
 
   let midPriceUSDC: number, sourceUSDCKey: PublicKey;
@@ -449,7 +465,7 @@ export async function singleTokenDeposit(
       }
 
       if (poolAssetAmounts[i] == 0) {
-        continue
+        continue;
       }
 
       let [assetMarket, assetMidPrice] = await getMidPrice(
@@ -599,9 +615,9 @@ export async function singleTokenDeposit(
 /**
  * Returns the seeds of the pools managed by the given signal provider.
  * Returns all poolseeds for the current BonfidaBot program if no signal provider was given.
- * 
- * @param connection 
- * @param signalProviderKey 
+ *
+ * @param connection
+ * @param signalProviderKey
  */
 export async function getPoolsSeedsBySigProvider(
   connection: Connection,
@@ -650,15 +666,33 @@ export const getPoolTokenMintFromSeed = async (
 };
 
 export const parseCreateOrderInstruction = (
-  data: Buffer,
+  instruction: TransactionInstruction,
   poolInfo: PoolInfo,
   sig: ConfirmedSignatureInfo,
+  cpiInstructions: CompiledInstruction[],
+  accounts: PublicKey[],
 ): PoolOrderInfo => {
+  let data = instruction.data;
+  let transferInstruction = cpiInstructions.filter(i => {
+    let isTokenInstruction =
+      accounts[i.programIdIndex].toBase58() === TOKEN_PROGRAM_ID.toBase58();
+    let isTransferInstruction = instruction.data[0] === 3;
+    return isTokenInstruction && isTransferInstruction;
+  })[0];
+  console.log('Signature: %s', sig.signature);
+  console.log('Instruction data: %s', transferInstruction.data);
+  let transferData = bs58.decode(transferInstruction.data);
+  let transferredAmount = Numberu64.fromBuffer(
+    transferData.slice(1, 9),
+  ).toNumber();
+  let openOrderAccount = instruction.keys[3].pubkey;
   return {
     poolSeed: data.slice(1, 33),
     side: [OrderSide.Bid, OrderSide.Ask][data[33]],
     limitPrice: Numberu64.fromBuffer(data.slice(34, 42)).toNumber(),
-    ratioOfPoolAssetsToTrade: Numberu16.fromBuffer(data.slice(42, 44)).toNumber(),
+    ratioOfPoolAssetsToTrade: Numberu16.fromBuffer(
+      data.slice(42, 44),
+    ).toNumber(),
     orderType: [
       OrderType.Limit,
       OrderType.ImmediateOrCancel,
@@ -675,23 +709,124 @@ export const parseCreateOrderInstruction = (
         Numberu16.fromBuffer(data.slice(70, 72)).toNumber()
       ],
     transactionSignature: sig.signature,
-    transactionSlot: sig.slot
+    transactionSlot: sig.slot,
+    transferredAmount: transferredAmount,
+    openOrderAccount: openOrderAccount,
+    settledAmount: [],
+  };
+};
+
+export const parseSettleInstruction = (
+  instruction: TransactionInstruction,
+  cpiInstructions: CompiledInstruction[],
+  poolAssetMap: Map<string, string>,
+  accounts: PublicKey[],
+): PoolSettleInfo | undefined => {
+  console.log('Instruction keys length: %s', instruction.keys.length);
+  let transferInstructions = cpiInstructions.filter(i => {
+    let innerData = bs58.decode(i.data);
+    console.log('Instruction program Id Index: %s', i.programIdIndex);
+    let isTokenInstruction =
+      accounts[i.programIdIndex].toBase58() === TOKEN_PROGRAM_ID.toBase58();
+    let isTransferInstruction = innerData[0] === 3;
+
+    // Only fetch transfer instructions which transfer assets into the pool (this excludes Serum fees)
+    let settlesIntoPool = poolAssetMap.has(
+      instruction.keys[i.accounts[1]].pubkey.toBase58(),
+    );
+    console.log(`IsTokenInstruction: ${isTokenInstruction}, isTransferInstruction: ${isTransferInstruction} (${innerData[0]}), settlesIntoPool: ${settlesIntoPool}`);
+    return isTokenInstruction && isTransferInstruction && settlesIntoPool;
+  });
+  console.log("Found %s relevant cpi instructions", transferInstructions.length);
+  let transferredAmounts = transferInstructions.map(t => {
+    return {
+      tokenMint: poolAssetMap.get(
+        instruction.keys[t.accounts[1]].pubkey.toBase58(),
+      ) as string,
+      amount: Numberu64.fromBuffer(
+        bs58.decode(t.data).slice(1, 9),
+      ).toNumber(),
+    };
+  });
+  if (transferInstructions.length === 0) {
+    // Settle instruction did not settle any funds
+    return undefined;
+  }
+  let market = instruction.keys[0].pubkey;
+  let openOrderAccount = instruction.keys[1].pubkey;
+  return {
+    openOrderAccount: openOrderAccount,
+    transferredAmounts: transferredAmounts,
+    market: market,
   };
 };
 
 export const getPoolOrdersInfosFromSignature = async (
   connection: Connection,
   poolInfo: PoolInfo,
+  poolAssetMap: Map<string, string>,
   sig: ConfirmedSignatureInfo,
-): Promise<PoolOrderInfo[] | undefined> => {
+): Promise<PoolInstructionInfo[] | undefined> => {
   let t = await connection.getConfirmedTransaction(sig.signature);
-  
-  let x = t?.transaction.instructions.map(i => {
-    if (i.programId.toBase58() === BONFIDABOT_PROGRAM_ID.toBase58() && i.data[0] == 3) {
-      return parseCreateOrderInstruction(i.data, poolInfo, sig);
+  let parsed_t = await connection.getParsedConfirmedTransaction(sig.signature);
+  let accounts = parsed_t?.transaction.message.accountKeys.map(
+    a => a.pubkey,
+  ) as PublicKey[];
+
+  if (t?.transaction === undefined) {
+    console.log('Could not retrieve transaction %s', sig.signature);
+    return undefined;
+  }
+
+  let x = t?.transaction.instructions.map((i, idx) => {
+    if (
+      i.programId.toBase58() === BONFIDABOT_PROGRAM_ID.toBase58() &&
+      (i.data[0] == 3 || i.data[0] == 5)
+    ) {
+      let innerInstructions = (t?.meta?.innerInstructions?.filter(x => {
+        // console.log("Comparing %s, %s", x.index, idx);
+        return x.index === idx;
+      })[0] as CompiledInnerInstruction | undefined)?.instructions;
+      if (!innerInstructions) {
+        // This means that the createOrder or settle instruction had no effect.
+        // console.log("Instruction has no effect");
+        return undefined;
+      }
+      if (i.data[0] == 3) {
+        // console.log("Found createOrder");
+        return {
+          type: 'createOrder',
+          info: parseCreateOrderInstruction(
+            i,
+            poolInfo,
+            sig,
+            innerInstructions,
+            accounts,
+          ),
+        };
+      } else {
+        let info = parseSettleInstruction(
+          i,
+          innerInstructions,
+          poolAssetMap,
+          accounts,
+        );
+        if (info) {
+          console.log('Found settle');
+          return {
+            type: 'settle',
+            info: parseSettleInstruction(
+              i,
+              innerInstructions,
+              poolAssetMap,
+              accounts,
+            ),
+          };
+        }
+      }
     }
   });
-  return x?.filter(o => o) as PoolOrderInfo[] | undefined;
+  return x?.filter(o => o) as PoolInstructionInfo[] | undefined;
 };
 
 export const getPoolOrderInfos = async (
@@ -701,9 +836,22 @@ export const getPoolOrderInfos = async (
 ): Promise<PoolOrderInfo[]> => {
   // TODO: this will return less than n orders if the n orders aren't contained within the last 1000 pool transactions
   // TODO: this doesn't track what portion of the order is actually matched.
+  // TODO: this only works as long as only IOC orders are supported.
+  // TODO: this only works as long as the number of pending orders never exceeds 1 (orders are settled before creating new orders)
   let poolInfo = await fetchPoolInfo(connection, poolSeed);
+  let poolAssetMap: Map<string, string> = new Map();
+  (
+    await Promise.all(
+      poolInfo.assetMintkeys.map(async a => {
+        const v = await findAssociatedTokenAddress(poolInfo.address, a);
+        return [v.toBase58(), a.toBase58()];
+      }),
+    )
+  ).forEach(v => {
+    poolAssetMap.set(v[0], v[1]);
+  });
 
-  console.log(poolInfo.address.toBase58());
+  console.log('Pool address: %s', poolInfo.address.toBase58());
 
   let confirmedsignatures = await connection.getConfirmedSignaturesForAddress2(
     poolInfo.address,
@@ -714,9 +862,55 @@ export const getPoolOrderInfos = async (
   let infos = ((
     await Promise.all(
       confirmedsignatures.map(s =>
-        getPoolOrdersInfosFromSignature(connection, poolInfo, s),
+        getPoolOrdersInfosFromSignature(connection, poolInfo, poolAssetMap, s),
       ),
     )
-  ).filter(o => o) as PoolOrderInfo[][]).flat();
-  return infos.slice(0, n);
+  ).filter(o => o) as PoolInstructionInfo[][]).flat();
+
+  let openOrderAccounts = infos.map(o => o.info.openOrderAccount);
+  for (const openOrderAccount of openOrderAccounts) {
+    let history = infos.filter(
+      i => i.info.openOrderAccount.toBase58() === openOrderAccount.toBase58(),
+    );
+
+    let firstCreateOrder = infos.findIndex(o => o.type === 'createOrder');
+    history = history.slice(firstCreateOrder);
+
+    let settleInstructions = history
+      .filter(o => o.type === 'settle')
+      .map(o => o.info as PoolSettleInfo)
+      .reverse();
+    let createOrderInstructions = history
+      .filter(o => o.type === 'createOrder')
+      .map(o => o.info as PoolOrderInfo);
+    createOrderInstructions.forEach(o => {
+      let settleInstruction = settleInstructions.pop();
+      if (settleInstruction) {
+        o.settledAmount = settleInstruction.transferredAmounts;
+      }
+    });
+  }
+  let createOrderInstructions = infos
+    .filter(o => o.type === 'createOrder')
+    .map(o => o.info as PoolOrderInfo);
+
+  let infos_to_return = createOrderInstructions.slice(0, n);
+
+  let markets: Map<string, MarketData> = new Map();
+  for (const i of infos_to_return) {
+    let key = i.market.toBase58();
+    if (!markets.has(key)) {
+      markets.set(key, await getMarketData(connection, i.market as PublicKey));
+    }
+  }
+  infos_to_return = infos_to_return.map(i => {
+    let marketData = markets.get(i.market.toBase58()) as MarketData;
+    let limitPrice =
+      (i.limitPrice * (marketData.pcLotSize as any).toNumber()) /
+      (marketData.coinLotSize as any).toNumber();
+    i.limitPrice = limitPrice;
+    return i;
+  });
+
+  return infos_to_return;
 };

@@ -153,15 +153,15 @@ pub enum PoolInstruction {
     ///
     ///    0. `[writable]` The market account
     ///    1. `[writable]` The pool's OpenOrders account
-    ///    3. `[writable]` the pool account
-    ///    4. `[]` the pool token mint
-    ///    5. `[writable]` coin vault
-    ///    6. `[writable]` pc vault
-    ///    7. `[writable]` the pool coin wallet
-    ///    8. `[writable]` the pool pc wallet
-    ///    9. `[]` vault signer
-    ///   10. `[]` spl token program
-    ///   11. `[]` Serum dex program
+    ///    2. `[writable]` the pool account
+    ///    3. `[]` the pool token mint
+    ///    4. `[writable]` coin vault
+    ///    5. `[writable]` pc vault
+    ///    6. `[writable]` the pool coin wallet
+    ///    7. `[writable]` the pool pc wallet
+    ///    8. `[]` vault signer
+    ///    9. `[]` spl token program
+    ///   10. `[]` Serum dex program
     ///   12. `[writable]` (optional) referrer pc wallet
     SettleFunds {
         pool_seed: [u8; 32],
