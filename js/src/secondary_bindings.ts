@@ -122,6 +122,12 @@ export async function settlePool(
     );
     console.log(openOrdersAccounts.length);
     for (let openOrder of openOrdersAccounts) {
+      if (
+        !openOrder.quoteTokenFree.toNumber() &&
+        !openOrder.baseTokenFree.toNumber()
+      ) {
+        continue;
+      }
       instructions.push(
         (
           await settleFunds(
