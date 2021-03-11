@@ -82,6 +82,7 @@ import { getMintDecimals } from '@project-serum/serum/lib/market';
 export async function settlePool(
   connection: Connection,
   poolSeed: Buffer | Uint8Array,
+  srmRefWallet: PublicKey | null = null,
 ): Promise<TransactionInstruction[]> {
   let poolKey = await PublicKey.createProgramAddress(
     [poolSeed],
@@ -128,7 +129,7 @@ export async function settlePool(
             poolSeed,
             authorizedMarket,
             openOrder.address,
-            null,
+            srmRefWallet,
           )
         )[0],
       );
@@ -743,13 +744,11 @@ export const parseSettleInstruction = (
       tokenMint: poolAssetMap.get(
         instruction.keys[t.accounts[1]].pubkey.toBase58(),
       ) as string,
-      amount: Numberu64.fromBuffer(
-        bs58.decode(t.data).slice(1, 9),
-      ).toNumber(),
+      amount: Numberu64.fromBuffer(bs58.decode(t.data).slice(1, 9)).toNumber(),
     };
   });
   if (transferredAmounts.length === 0) {
-    console.log(`Empty settle for ${instruction.keys[1].pubkey.toBase58()}`)
+    console.log(`Empty settle for ${instruction.keys[1].pubkey.toBase58()}`);
     // Settle instruction did not settle any funds
     return undefined;
   }
@@ -759,7 +758,7 @@ export const parseSettleInstruction = (
     openOrderAccount: openOrderAccount,
     transferredAmounts: transferredAmounts,
     market: market,
-    transactionSlot: sig.slot
+    transactionSlot: sig.slot,
   };
 };
 
@@ -864,11 +863,13 @@ export const getPoolOrderInfos = async (
     )
   ).filter(o => o) as PoolInstructionInfo[][]).flat();
 
-  let openOrderAccounts = new Set(infos.map(o => o.info.openOrderAccount.toBase58()));
+  let openOrderAccounts = new Set(
+    infos.map(o => o.info.openOrderAccount.toBase58()),
+  );
   for (const openOrderAccount of openOrderAccounts) {
-    let history = infos.filter(
-      i => i.info.openOrderAccount.toBase58() == openOrderAccount,
-    ).reverse();
+    let history = infos
+      .filter(i => i.info.openOrderAccount.toBase58() == openOrderAccount)
+      .reverse();
     // console.log(`Open order Account : ${openOrderAccount}`);
     // console.log(`${history.length} transactions`);
 
@@ -882,8 +883,7 @@ export const getPoolOrderInfos = async (
       .filter(o => o.type === 'settle')
       .map(o => o.info as PoolSettleInfo)
       .reverse();
-    let createOrderInstructions = history
-      .map(o => o.info as PoolOrderInfo);
+    let createOrderInstructions = history.map(o => o.info as PoolOrderInfo);
     createOrderInstructions.forEach(o => {
       let settleInstruction = settleInstructions.pop();
       if (settleInstruction) {
@@ -924,11 +924,15 @@ export const getPoolOrderInfos = async (
       (i.limitPrice * (marketData.pcLotSize as any).toNumber()) /
       (marketData.coinLotSize as any).toNumber();
     i.limitPrice = limitPrice;
-    let transferredMint = [marketData.pcMintKey, marketData.coinMintKey][i.side];
-    i.transferredAmount = i.transferredAmount / (10**(tokenDecimals.get(transferredMint.toBase58()) as number));
+    let transferredMint = [marketData.pcMintKey, marketData.coinMintKey][
+      i.side
+    ];
+    i.transferredAmount =
+      i.transferredAmount /
+      10 ** (tokenDecimals.get(transferredMint.toBase58()) as number);
     i.settledAmount.map(a => {
-      a.amount = a.amount / (10**(tokenDecimals.get(a.tokenMint) as number));
-      return a
+      a.amount = a.amount / 10 ** (tokenDecimals.get(a.tokenMint) as number);
+      return a;
     });
     return i;
   });
