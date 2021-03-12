@@ -89,8 +89,6 @@ export function createInstruction(
   let buffers = [
     Buffer.from(Int8Array.from([1])),
     Buffer.concat(poolSeed),
-    serumProgramId.toBuffer(),
-    signalProviderKey.toBuffer(),
     // @ts-ignore
     new Numberu16(markets.length).toBuffer(),
     feeCollectionPeriod.toBuffer(),
@@ -114,6 +112,16 @@ export function createInstruction(
     },
     {
       pubkey: clockSysvarKey,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: serumProgramId,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: signalProviderKey,
       isSigner: false,
       isWritable: false,
     },

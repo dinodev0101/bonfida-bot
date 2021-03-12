@@ -21,12 +21,6 @@ use std::{
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PoolInstruction {
-    //
-    // It seems strange to separate Init and Create -- what was the issue you
-    // were seeing with respect to "allocation needs to first processed by the
-    // network before being overwritten"?  For the mint, you're doing create +
-    // initialize_mint in the Init, so it should be ok, right?
-    //
     /// Initializes an empty pool account for the bonfida-bot program
     ///
     /// Accounts expected by this instruction:
@@ -57,6 +51,8 @@ pub enum PoolInstruction {
     ///   * Single owner
     ///   0. `[]` The spl-token program account
     ///   1. `[]` The clock sysvar account
+    ///   1. `[]` The serum program account
+    ///   1. `[]` The signal provider account
     ///   2. `[writable]` The pooltoken mint account
     ///   3. `[writable]` The target account that receives the pooltokens
     ///   4. `[writable]` The pool account
@@ -66,11 +62,6 @@ pub enum PoolInstruction {
     ///   M+6..2M+6. `[writable]` The M source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
-        // To avoid a issue wrong account info passed in, it's
-        // best practice to provide an account input instead of a pubkey in
-        // the instruction data.
-        serum_program_id: Pubkey,
-        signal_provider_key: Pubkey,
         fee_collection_period: u64,
         fee_ratio: u16,
         deposit_amounts: Vec<u64>,
@@ -244,33 +235,23 @@ impl PoolInstruction {
                     .get(..32)
                     .and_then(|slice| slice.try_into().ok())
                     .unwrap();
-                let serum_program_id = rest
-                    .get(32..64)
-                    .and_then(|slice| slice.try_into().ok())
-                    .map(Pubkey::new)
-                    .ok_or(InvalidInstruction)?;
-                let signal_provider_key = rest
-                    .get(64..96)
-                    .and_then(|slice| slice.try_into().ok())
-                    .map(Pubkey::new)
-                    .ok_or(InvalidInstruction)?;
                 let number_of_markets = rest
-                    .get(96..98)
+                    .get(32..34)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u16::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
                 let fee_collection_period = rest
-                    .get(98..106)
+                    .get(34..42)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
                 let fee_ratio = rest
-                    .get(106..108)
+                    .get(42..44)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u16::from_le_bytes)
                     .ok_or(InvalidInstruction)?;
                 let mut markets = Vec::with_capacity(number_of_markets as usize);
-                let mut offset = 108;
+                let mut offset = 44;
                 for _ in 0..number_of_markets {
                     markets.push(
                         rest.get(offset..offset + 32)
@@ -293,8 +274,6 @@ impl PoolInstruction {
                 }
                 Self::Create {
                     pool_seed,
-                    serum_program_id,
-                    signal_provider_key,
                     markets,
                     deposit_amounts,
                     fee_collection_period,
@@ -497,8 +476,6 @@ impl PoolInstruction {
             }
             Self::Create {
                 pool_seed,
-                serum_program_id,
-                signal_provider_key,
                 fee_collection_period,
                 fee_ratio,
                 deposit_amounts,
@@ -506,8 +483,6 @@ impl PoolInstruction {
             } => {
                 buf.push(1);
                 buf.extend_from_slice(pool_seed);
-                buf.extend_from_slice(&serum_program_id.to_bytes());
-                buf.extend_from_slice(&signal_provider_key.to_bytes());
                 buf.extend_from_slice(&(markets.len() as u16).to_le_bytes());
                 buf.extend_from_slice(&fee_collection_period.to_le_bytes());
                 buf.extend_from_slice(&fee_ratio.to_le_bytes());
@@ -676,8 +651,6 @@ pub fn create(
 ) -> Result<Instruction, ProgramError> {
     let data = PoolInstruction::Create {
         pool_seed,
-        serum_program_id: *serum_program_id,
-        signal_provider_key: *signal_provider_key,
         deposit_amounts,
         markets,
         fee_collection_period,
@@ -687,6 +660,8 @@ pub fn create(
     let mut accounts = vec![
         AccountMeta::new_readonly(*spl_token_program_id, false),
         AccountMeta::new_readonly(*clock_sysvar_id, false),
+        AccountMeta::new_readonly(*serum_program_id, false),
+        AccountMeta::new_readonly(*signal_provider_key, false),
         AccountMeta::new(*mint_key, false),
         AccountMeta::new(*target_pool_token_key, false),
         AccountMeta::new(*pool_key, false),
@@ -1012,8 +987,6 @@ mod test {
 
         let original_create = PoolInstruction::Create {
             pool_seed: [50u8; 32],
-            serum_program_id: Pubkey::new_unique(),
-            signal_provider_key: Pubkey::new_unique(),
             deposit_amounts: vec![23 as u64, 43 as u64],
             markets: vec![
                 Pubkey::new_unique(),

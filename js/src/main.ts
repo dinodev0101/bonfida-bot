@@ -114,20 +114,6 @@ export async function createPool(
   let bump: number;
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
-  //
-  // What's the importance of the 32-byte seed?
-  // It might be simpler to allow the pool to exist on any keypair,
-  // and then have an authority, which is found with
-  // `PublicKey.findProgramAddress(pool_address, program_id)`
-  // Then you'll just need to store the bump seed from it.
-  // For the mint, the mint authority can be that same address, and you could
-  // also have that exist on any keypair, or use
-  // `CreateAccountWithSeed(authority, "mint", token_program_id)`
-  // if it needs to be deterministic.
-  //
-  // None of the instructions require require pool_seed in that case, and instead
-  // take the authority address as an account.
-  //
   while (true) {
     poolSeed = crypto.randomBytes(32);
     [poolKey, bump] = await PublicKey.findProgramAddress(

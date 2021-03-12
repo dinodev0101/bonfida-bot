@@ -12,12 +12,6 @@ pub const BONFIDA_BNB: &str = "3oQzjfjzUkJ5qHsERk2JPEpAKo34dxAQjUriBqursfxU";
 
 // Pool state is composed of PoolHeader, Array of markets (pubkeys) and array of poolassets
 
-//
-// This is a clever way of not needing to specify the size of your structures.
-// As an alternative, take a look at Borsh for this next time.  They serialize
-// very easily into Vecs so you don't have to worry about all of the slice and
-// offset logic.
-//
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
@@ -113,7 +107,7 @@ impl Pack for PoolHeader {
             number_of_markets,
             fee_ratio,
             last_fee_collection_timestamp,
-            fee_collection_period
+            fee_collection_period,
         })
     }
 
@@ -172,9 +166,7 @@ impl Pack for PoolAsset {
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let mint_address = Pubkey::new(&src[..32]);
-        Ok(Self {
-            mint_address,
-        })
+        Ok(Self { mint_address })
     }
 }
 
@@ -201,7 +193,8 @@ pub fn unpack_unchecked_asset(input: &[u8], index: usize) -> Result<PoolAsset, P
 
 pub fn get_asset_slice(target: &mut [u8], index: usize) -> Result<&mut [u8], ProgramError> {
     let offset = index * PoolAsset::LEN;
-    target.get_mut(offset..offset + PoolAsset::LEN)
+    target
+        .get_mut(offset..offset + PoolAsset::LEN)
         .ok_or(ProgramError::InvalidArgument)
 }
 
@@ -212,7 +205,7 @@ pub fn unpack_market(input: &[u8], market_index: u16) -> Pubkey {
 
 pub fn pack_markets(target: &mut [u8], markets: &Vec<Pubkey>) -> Result<(), ProgramError> {
     for i in 0..markets.len() {
-        target[32 * i..32 *(i + 1)].copy_from_slice(&markets[i].to_bytes());
+        target[32 * i..32 * (i + 1)].copy_from_slice(&markets[i].to_bytes());
     }
     Ok(())
 }
@@ -221,7 +214,7 @@ pub fn pack_markets(target: &mut [u8], markets: &Vec<Pubkey>) -> Result<(), Prog
 mod tests {
     use std::num::NonZeroU8;
 
-    use super::{PoolAsset, PoolHeader, PoolStatus, unpack_assets, unpack_market, pack_markets};
+    use super::{pack_markets, unpack_assets, unpack_market, PoolAsset, PoolHeader, PoolStatus};
     use solana_program::{
         program_pack::{IsInitialized, Pack},
         pubkey::Pubkey,
@@ -231,14 +224,13 @@ mod tests {
     fn test_state_packing() {
         let header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
-            // you only need 1 u8 for a bump seed on a program address.  Also,
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
 
         let header_size = PoolHeader::LEN;
@@ -272,7 +264,7 @@ mod tests {
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
         assert_eq!(
             header_state,
@@ -287,7 +279,7 @@ mod tests {
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
         assert_eq!(
             header_state,
@@ -302,7 +294,7 @@ mod tests {
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
         assert_eq!(
             header_state,
@@ -317,7 +309,7 @@ mod tests {
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
         assert_eq!(
             header_state,
@@ -332,7 +324,7 @@ mod tests {
             number_of_markets: 234,
             fee_ratio: 15,
             last_fee_collection_timestamp: 1_000_000_000,
-            fee_collection_period: 10_000
+            fee_collection_period: 10_000,
         };
         assert!(PoolHeader::unpack(&get_packed(&header_state)).is_err());
     }
@@ -351,8 +343,12 @@ mod tests {
 
     #[test]
     fn test_market_packing() {
-
-        let markets = vec![Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique()];
+        let markets = vec![
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        ];
         let mut output_array = [0u8; 4 * 32];
         pack_markets(&mut output_array, &markets).unwrap();
         for i in 0..4 {
