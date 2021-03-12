@@ -66,7 +66,7 @@ pub enum Intention {
     BuyIn(u8),
     BuyOutPartial(u8),
     BuyOut,
-    Attack(u32),
+    Attack(u64),
 }
 
 pub enum Signal {
@@ -388,7 +388,7 @@ impl Universe {
                 }
                 Intention::Attack(seed) => {
                     println!("Attacking");
-                    let instruction_tag = seed >> 29;
+                    let instruction_tag = seed >> 61;
                     match instruction_tag {
                         0 => {
                             let target_pool_token_account =
@@ -396,16 +396,24 @@ impl Universe {
                             let asset_accounts = &vec![
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 4) & 0x3f) as u8,
+                                    ((seed >> 6) & 0x3f) as u8,
                                 ),
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 8) & 0x3f) as u8,
+                                    ((seed >> 12) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 18) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 24) & 0x3f) as u8,
                                 ),
                             ];
                             let deposit_amounts = vec![
-                                (((seed >> 12) & 0x3f) as u64) * 100_000,
-                                (((seed >> 16) & 0x3f) as u64) * 100_000,
+                                (((seed >> 30) & 0x3f) as u64) * 100_000,
+                                (((seed >> 36) & 0x3f) as u64) * 100_000,
                             ];
                             let result = self
                                 .pool
@@ -425,15 +433,23 @@ impl Universe {
                         1 => {
                             let target_pool_token_account =
                                 get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8);
-                            let amount = (((seed >> 4) & 0x3f) as u64) * 100_000;
+                            let amount = (((seed >> 6) & 0x3f) as u64) * 100_000;
                             let asset_accounts = &vec![
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 8) & 0x3f) as u8,
+                                    ((seed >> 12) & 0x3f) as u8,
                                 ),
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 12) & 0x3f) as u8,
+                                    ((seed >> 18) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 24) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 30) & 0x3f) as u8,
                                 ),
                             ];
 
@@ -450,7 +466,7 @@ impl Universe {
                             let order = Order {
                                 open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
                             };
-                            let side = match seed >> 31 {
+                            let side = match (seed >> 6) & 1 {
                                 0 => {Side::Ask}
                                 1 => {Side::Bid}
                                 _ => {unreachable!()}
@@ -458,12 +474,12 @@ impl Universe {
                             let result = self.pool.create_new_order(
                                 ctx, 
                                 self.serum_market.as_ref().unwrap(), 
-                                ((seed >> 16) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
-                                ((seed >> 20) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
+                                ((seed >> 7) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
+                                ((seed >> 13) & 0x3f) as u64 % (self.pool.mints.len() as u64), 
                                 &order, 
                                 side, 
-                                NonZeroU64::new((((seed >> 24) & 0x3f) << 4) as u64 + 1).unwrap(), 
-                                NonZeroU16::new((((seed >> 28) & 0x3f) << 4) as u16 + 1).unwrap()
+                                NonZeroU64::new((((seed >> 19) & 0x3f) << 4) as u64 + 1).unwrap(), 
+                                NonZeroU16::new((((seed >> 25) & 0x3f) << 4) as u16 + 1).unwrap()
                             ).await;
                             result_err_filter(result)?;
                         }
@@ -474,22 +490,22 @@ impl Universe {
                             let result = self.pool.settle(
                                 ctx,
                                 self.serum_market.as_ref().unwrap(),
-                                ((seed >> 4) & 0x3f) as u64 % (self.pool.mints.len() as u64),
-                                ((seed >> 8) & 0x3f) as u64 % (self.pool.mints.len() as u64),
+                                ((seed >> 6) & 0x3f) as u64 % (self.pool.mints.len() as u64),
+                                ((seed >> 12) & 0x3f) as u64 % (self.pool.mints.len() as u64),
                                 &order
                             ).await;
                             result_err_filter(result)?;
                         }
                         4 => {
-                            let order = Order {
-                                open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
-                            };
-                            let result = self.pool.cancel_order(
-                                ctx, 
-                                self.serum_market.as_ref().unwrap(), 
-                                &order
-                            ).await;
-                            result_err_filter(result)?;
+                            // let order = Order {
+                            //     open_orders_account: *get_element_from_seed(&self.known_accounts, (seed & 0x3f) as u8)
+                            // };
+                            // let result = self.pool.cancel_order(
+                            //     ctx, 
+                            //     self.serum_market.as_ref().unwrap(), 
+                            //     &order
+                            // ).await;
+                            // result_err_filter(result)?;
                         }
                         5 => {
                             let target_pool_token_account =
@@ -497,16 +513,24 @@ impl Universe {
                             let asset_accounts = &vec![
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 4) & 0x3f) as u8,
+                                    ((seed >> 6) & 0x3f) as u8,
                                 ),
                                 *get_element_from_seed(
                                     &self.known_accounts,
-                                    ((seed >> 8) & 0x3f) as u8,
+                                    ((seed >> 12) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 18) & 0x3f) as u8,
+                                ),
+                                *get_element_from_seed(
+                                    &self.known_accounts,
+                                    ((seed >> 24) & 0x3f) as u8,
                                 ),
                             ];
                             let result = self.pool.redeem(
                                 ctx, 
-                                (((seed >> 12) & 0x3f) << 4) as u64, 
+                                (((seed >> 30) & 0x3f) << 4) as u64, 
                                 &actor.key, 
                                 target_pool_token_account, 
                                 asset_accounts

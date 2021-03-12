@@ -922,7 +922,7 @@ impl Processor {
 
         if (openorders_free_pc == 0) & (openorders_free_coin == 0) {
             msg!("No funds to settle.");
-            return Err(BonfidaBotError::Overflow.into());
+            return Err(BonfidaBotError::LockedOperation.into());
         }
 
         &pool_coin_asset.pack_into_slice(get_asset_slice(
@@ -1087,6 +1087,12 @@ impl Processor {
         }
 
         let total_pooltokens = Mint::unpack(&mint_account.data.borrow())?.supply;
+        let total_user_pooltokens = Account::unpack(&source_pool_token_account.data.borrow())?.amount;
+
+        if total_user_pooltokens < pool_token_amount {
+            msg!("Insufficient pool token funds");
+            return Err(ProgramError::InsufficientFunds)
+        } 
 
         // Execute buy out
         for i in 0..nb_assets {

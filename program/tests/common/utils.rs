@@ -321,6 +321,9 @@ pub fn result_err_filter(e: Result<(), TransportError>) -> Result<(), TransportE
                     | InstructionError::InvalidSeeds
                     | InstructionError::Custom(2)
                     | InstructionError::Custom(3)
+                    | InstructionError::Custom(0x10000e7) // Serum invalid openorder account owner error
+                    | InstructionError::Custom(0x1000683) // Serum invalid pc payer account
+                    | InstructionError::Custom(0x1000684) // Serum invalid coin payer account
                     | InstructionError::Custom(4) => {Ok(())},
                     _ => {
                         print!("{:?}", ie);
