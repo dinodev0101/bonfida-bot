@@ -601,17 +601,36 @@ impl Processor {
             msg!("The given market account is not authorized.");
             return Err(ProgramError::MissingRequiredSignature);
         }
-        match pool_header.status {
-            PoolStatus::Uninitialized => return Err(ProgramError::UninitializedAccount),
-            PoolStatus::Unlocked => {
+
+        
+        let openorders_total_pc = openorders_account
+            .data
+            .borrow()
+            .get(101..109)
+            .and_then(|slice| slice.try_into().ok())
+            .map(u64::from_le_bytes)
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        let openorders_total_coin = openorders_account
+            .data
+            .borrow()
+            .get(85..93)
+            .and_then(|slice| slice.try_into().ok())
+            .map(u64::from_le_bytes)
+            .ok_or(ProgramError::InvalidAccountData)?;
+        
+        let new_open_order = (openorders_total_coin == 0) && (openorders_total_pc == 0);
+        match (&pool_header.status, new_open_order) {
+            (PoolStatus::Uninitialized, _) => return Err(ProgramError::UninitializedAccount),
+            (PoolStatus::Unlocked, _) => {
                 pool_header.status = PoolStatus::PendingOrder(NonZeroU8::new(1).unwrap())
             }
-            PoolStatus::Locked => {
+            (PoolStatus::Locked, _) => {
                 pool_header.status = PoolStatus::LockedPendingOrder(NonZeroU8::new(1).unwrap())
             }
-            PoolStatus::PendingOrder(n) | PoolStatus::LockedPendingOrder(n) => {
+            (PoolStatus::PendingOrder(n), true) | (PoolStatus::LockedPendingOrder(n), true) => {
                 if n.get() == 64 {
-                    msg!("Maximum number of pending orders has been reached. Settle or cancel a pending order.");
+                    msg!("Maximum number of active orders has been reached. Settle or cancel a pending order.");
                     return Err(BonfidaBotError::Overflow.into());
                 }
                 let pending_orders = NonZeroU8::new(n.get() + 1).unwrap();
@@ -625,6 +644,7 @@ impl Processor {
                     }
                 }
             }
+            _ => {} // This happens in the case when the openorder account is already counted in the pending orders.
         };
         pool_header.pack_into_slice(&mut pool_account.data.borrow_mut()[..PoolHeader::LEN]);
 

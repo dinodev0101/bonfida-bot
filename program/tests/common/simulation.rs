@@ -18,7 +18,7 @@ use super::{
 };
 
 #[cfg(feature = "fuzz")]
-use super::utils::{arbitraryNonZeroU8};
+use super::utils::arbitraryNonZeroU8;
 
 pub struct Actor {
     pub key: Keypair,
@@ -161,6 +161,9 @@ impl Execution {
         for a in &self.subscribers {
             universe.add_actor(a.clone())
         }
+
+        println!("=========== Universe init ===========");
+
         result_err_filter(
             universe
                 .init(
@@ -173,6 +176,7 @@ impl Execution {
                 .await,
         )
         .unwrap();
+        println!("=========== Simulation Turns ===========");
         for turn in &self.turns {
             result_err_filter(universe.consume_turn(ctx, turn).await).unwrap();
             if universe.pool_token_supply == 0 {
