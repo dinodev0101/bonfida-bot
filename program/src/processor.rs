@@ -49,6 +49,10 @@ impl Processor {
 
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_sysvar_account = next_account_info(accounts_iter)?;
+        //
+        // You may want to check this parameter to make sure it's the expected
+        // token program id. There might be a footgun for outside users otherwise.
+        //
         let spl_token_program_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
         let mint_account = next_account_info(accounts_iter)?;
@@ -201,6 +205,8 @@ impl Processor {
         for i in 0..number_of_assets {
             let mint_asset_key =
                 Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            // Shouldn't be needed, but you can consider including a check here that
+            // the `pool_assets_accounts[i]` is actually owned by the pool.
             let pool_asset_key = get_associated_token_address(&pool_key, &mint_asset_key);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
@@ -214,7 +220,10 @@ impl Processor {
                 &pool_assets_accounts[i as usize].key,
                 source_owner_account.key,
                 &[],
-                deposit_amounts[i as usize],
+                deposit_amounts[i as usize], // Are zeros ok here?
+                // In general, you might run into some weird behavior for very
+                // low amounts of liquidity in any of the pool's trading accounts,
+                // but it should be ok.
             )?;
             invoke(
                 &transfer_instruction,
@@ -237,7 +246,7 @@ impl Processor {
             target_pool_token_account.key,
             &pool_key,
             &[],
-            1000000,
+            1000000, // I'm worried this number might be a little small, how did you decide on it?
         )?;
 
         invoke_signed(
@@ -255,6 +264,7 @@ impl Processor {
         let state_header = PoolHeader {
             serum_program_id: *serum_program_id,
             seed: pool_seed,
+            // do you need to do any checks on the signal provider key?
             signal_provider: *signal_provider_key,
             status: PoolStatus::Unlocked,
             number_of_markets: markets.len() as u16,
@@ -325,6 +335,7 @@ impl Processor {
 
         // Safety verifications
         if pool_token_amount < 1_000 {
+            // What's wrong with a small pool token amount like this?
             msg!("Provided pool token amount isn't sufficient.");
             return Err(ProgramError::InvalidArgument);
         }
@@ -360,6 +371,7 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
+        // Doing a match on all cases here would be more idiomatic
         match pool_header.status {
             PoolStatus::Unlocked => (),
             _ => {
@@ -408,11 +420,27 @@ impl Processor {
                 return Err(ProgramError::InvalidArgument);
             }
 
+            //
+            // Just something to be aware of, when any one of the pool asset amounts
+            // is small, you can get situations where people who deposit 0 can leak
+            // value from the pool:
+            //
+            // Let's say we have 1,000,000 pool tokens, and the pool has 10 SRM
+            // tokens.  If I deposit enough to get 10,000 pool tokens,
+            // this calculation would give me 0 SRM, but I would still own a
+            // fraction of that SRM.  If I do this 100 times, I would have 1,000,000
+            // pool tokens out of 2,000,000, which would let me withdraw 5 SRM
+            // all at once without ever depositing it!
+            //
+            // As a potential remedy, if `pool_asset_amounts[i] == 0`, allow 0,
+            // otherwise, take a minimum of 1 token from the depositor.
+            //
             let amount = ((pool_token_effective_amount as u128) * (pool_asset_amounts[i] as u128))
                 / (total_pooltokens as u128);
             if amount == 0 {
                 continue;
             }
+
             let instruction = transfer(
                 spl_token_account.key,
                 source_assets_accounts[i].key,
@@ -459,6 +487,12 @@ impl Processor {
             &[&[&pool_seed]],
         )?;
 
+        //
+        // In many situations, you're likely under-minting your fee! E.g. if the pool
+        // token fee is 90 tokens total, you'll only mint 89:
+        //
+        // 90 / 2 + 90 / 4 + 90 / 4 = 89
+        //
         // Mint the effective amount of pooltokens to the target
         let instruction = mint_to(
             spl_token_account.key,
@@ -577,6 +611,11 @@ impl Processor {
             msg!("Source token account should be associated to the pool account");
             return Err(ProgramError::InvalidArgument);
         }
+        //
+        // This is my own lack of knowledge about how Serum works, but if an
+        // order is ImmediateOrCancel, how can you also have a lot of pending
+        // orders?
+        //
         if order_type != OrderType::ImmediateOrCancel {
             msg!("Order needs to be of type ImmediateOrCancel");
             return Err(ProgramError::InvalidArgument);
@@ -684,6 +723,12 @@ impl Processor {
 
         let pool_asset_amount = Account::unpack(&pool_asset_token_account.data.borrow())?.amount;
 
+        //
+        // Since the bot decides what proportion to trade instead of a literal amount,
+        // things might be tricky to manage if there's already open orders and
+        // there are deposits / withdraws happening.  What's the benefit of doing
+        // it this way?
+        //
         let amount_to_trade = (((pool_asset_amount as u128)
             * (max_ratio_of_pool_to_sell_to_another_fellow_trader.get() as u128))
             >> 16) as u64;
@@ -697,6 +742,11 @@ impl Processor {
 
         if pool_asset_amount == amount_to_trade {
             // If order empties a pool asset, reset it
+            //
+            // This seems like extra state to maintain by resetting and re-initializing
+            // assets as they get drained and recreated.  Either way, the pool's
+            // token account will always exist, correct?  What's the benefit of
+            // clearing these?
             fill_slice(
                 get_asset_slice(
                     &mut pool_account.data.borrow_mut()[asset_offset..],
@@ -1106,6 +1156,12 @@ impl Processor {
 
             let pool_asset_amount = Account::unpack(&pool_assets_accounts[i].data.borrow())?.amount;
 
+            //
+            // These calcs should be ok since it truncates the amount returned.
+            // For example, if there are 1 million pool tokens, and I redeem
+            // 10k tokens (1%), if one of the trading accounts has 10 tokens, I will
+            // get back nothing from that one.
+            //
             let amount: u64 = (((pool_token_amount as u128) * (pool_asset_amount as u128))
                 / (total_pooltokens as u128))
                 .try_into()
@@ -1154,6 +1210,9 @@ impl Processor {
             ],
         )?;
 
+        //
+        // Clever way of restarting the pool!
+        //
         if pool_token_amount == total_pooltokens {
             // Reset the pool data, keeping the pool header mostly intact to preserve pool seeds
             fill_slice(&mut pool_account.data.borrow_mut()[PoolHeader::LEN..], 0u8);
@@ -1239,9 +1298,13 @@ impl Processor {
 
         let tokens_to_mint = (collect_ratio * total_pooltokens / feeless_ratio) as u64;
 
+        // a few debug messages still hanging around
         msg!("CHECK 7");
 
         // Mint the required amount of pooltokens to the signal provider
+        //
+        // Like with deposit, these will often not be minted in the quantity
+        // expected, unless it's always divisible by 4
         let mint_to_sp_instruction = mint_to(
             spl_token_account.key,
             &pool_mint_key,
@@ -1262,6 +1325,7 @@ impl Processor {
             &[&[&pool_seed]],
         )?;
 
+        // a few debug messages still hanging around
         msg!("CHECK 8");
 
         // Mint the required amount of pooltokens to the bonfida fee account
@@ -1306,6 +1370,7 @@ impl Processor {
             &[&[&pool_seed]],
         )?;
 
+        // a few debug messages still hanging around
         msg!("CHECK 9");
 
         PoolHeader::pack(
@@ -1313,6 +1378,7 @@ impl Processor {
             &mut pool_account.data.borrow_mut()[..PoolHeader::LEN],
         )?;
 
+        // a few debug messages still hanging around
         msg!("CHECK 10");
 
         Ok(())

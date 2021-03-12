@@ -83,7 +83,7 @@ export const PUBLIC_POOLS_SEEDS = [
  * and setting the pubkey of the signal provider. The first deposit will fix the initial
  * value of 1 pooltoken (credited to the target) with respect to the deposited tokens.
  * (Signed by the sourceOwner account)
- * 
+ *
  * @param connection The connection object to the rpc node
  * @param sourceOwnerKey The address of the wallet that owns the tokens to be invested in the pool
  * @param sourceAssetKeys The adresses of the token accounts that hold the tokens to be invested in the pool
@@ -114,6 +114,20 @@ export async function createPool(
   let bump: number;
   let array_one = new Uint8Array(1);
   array_one[0] = 1;
+  //
+  // What's the importance of the 32-byte seed?
+  // It might be simpler to allow the pool to exist on any keypair,
+  // and then have an authority, which is found with
+  // `PublicKey.findProgramAddress(pool_address, program_id)`
+  // Then you'll just need to store the bump seed from it.
+  // For the mint, the mint authority can be that same address, and you could
+  // also have that exist on any keypair, or use
+  // `CreateAccountWithSeed(authority, "mint", token_program_id)`
+  // if it needs to be deterministic.
+  //
+  // None of the instructions require require pool_seed in that case, and instead
+  // take the authority address as an account.
+  //
   while (true) {
     poolSeed = crypto.randomBytes(32);
     [poolKey, bump] = await PublicKey.findProgramAddress(
@@ -175,7 +189,7 @@ export async function createPool(
     );
     poolAssetKeys.push(await findAssociatedTokenAddress(poolKey, assetMint));
   }
-  
+
   // If nonexistent, create the source owner associated addresses to receive the pooltokens
   let txInstructions: Array<TransactionInstruction> = [initTxInstruction];
   let [targetPoolTokenKey, targetPTInstruction] = await findAndCreateAssociatedAccount(
@@ -222,7 +236,7 @@ export async function createPool(
  * the ratio of tokens present in the pool at that moment. Tokens can only be deposited
  * in the exact ratio of tokens that are present in the pool.
  * (Signed by the sourceOwnerKey)
- * 
+ *
  * @param connection The connection object to the rpc node
  * @param sourceOwnerKey The address of the wallet that owns the tokens to be invested in the pool
  * @param sourceAssetKeys The adresses of the token accounts that hold the tokens to be invested in the pool
@@ -329,7 +343,7 @@ export async function deposit(
  * Returns the solana instructions to create a new serum order for the pool.
  * (Signed by the SignalProvider account of the pool and the OpenOrder Account
  * returned by this function)
- * 
+ *
  * @param connection The connection object to the rpc node
  * @param poolSeed The seed of the pool that should be traded on
  * @param market The address of the serum market to trade on
@@ -453,7 +467,7 @@ export async function createOrder(
   );
   console.log('Open Order key: ', openOrderKey.toString());
 
-  
+
   // Calcutlate the amount to trade as a ratio fo the pool balance
   let sourcePoolAssetBalance = (await connection.getTokenAccountBalance(sourcePoolAssetKey)).value;
   // @ts-ignore
@@ -511,7 +525,7 @@ export async function createOrder(
 /**
  * Returns the solana instructions to a crank to settle funds out of one of the pool's active OpenOrders accounts.
  * (Permissionless)
- * 
+ *
  * @param connection The connection object to the rpc node
  * @param poolSeed The seed of the pool that should be settled
  * @param market The address of the serum market on which the order is
@@ -605,11 +619,11 @@ export async function settleFunds(
 
 /**
  * This method is obsolete for now as all orders can only be passed as ImmediateOrCancel
- * 
- * @param connection 
- * @param poolSeed 
- * @param market 
- * @param openOrdersKey 
+ *
+ * @param connection
+ * @param poolSeed
+ * @param market
+ * @param openOrdersKey
  */
 export async function cancelOrder(
   connection: Connection,
@@ -674,7 +688,7 @@ export async function cancelOrder(
  * having settled on all possible open orders for the pool.
  * This is because as long as an order is open for the pool, redeeming is impossible.
  * (Signed by the owner of the pooltokens)
- * 
+ *
  * @param connection The connection object to the rpc node
  * @param sourcePoolTokenOwnerKey The address of the account that owns the pooltokens to be redeemed
  * @param sourcePoolTokenKey The address that holds the pooltokens
@@ -741,7 +755,7 @@ export async function redeem(
   *  Returns the solana instructions to collect the fees from the pool.
   *  See the readme for the payout destinations.
   * (Permissionless)
-  * 
+  *
   * @param connection The connection object to the rpc node
   * @param poolSeed The seed of the pool
   */

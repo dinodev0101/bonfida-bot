@@ -21,6 +21,12 @@ use std::{
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PoolInstruction {
+    //
+    // It seems strange to separate Init and Create -- what was the issue you
+    // were seeing with respect to "allocation needs to first processed by the
+    // network before being overwritten"?  For the mint, you're doing create +
+    // initialize_mint in the Init, so it should be ok, right?
+    //
     /// Initializes an empty pool account for the bonfida-bot program
     ///
     /// Accounts expected by this instruction:
@@ -60,6 +66,9 @@ pub enum PoolInstruction {
     ///   M+6..2M+6. `[writable]` The M source token accounts in the same order as above
     Create {
         pool_seed: [u8; 32],
+        // To avoid a issue wrong account info passed in, it's
+        // best practice to provide an account input instead of a pubkey in
+        // the instruction data.
         serum_program_id: Pubkey,
         signal_provider_key: Pubkey,
         fee_collection_period: u64,

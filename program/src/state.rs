@@ -12,6 +12,12 @@ pub const BONFIDA_BNB: &str = "3oQzjfjzUkJ5qHsERk2JPEpAKo34dxAQjUriBqursfxU";
 
 // Pool state is composed of PoolHeader, Array of markets (pubkeys) and array of poolassets
 
+//
+// This is a clever way of not needing to specify the size of your structures.
+// As an alternative, take a look at Borsh for this next time.  They serialize
+// very easily into Vecs so you don't have to worry about all of the slice and
+// offset logic.
+//
 #[derive(Debug, PartialEq)]
 pub struct PoolAsset {
     pub mint_address: Pubkey,
@@ -225,6 +231,7 @@ mod tests {
     fn test_state_packing() {
         let header_state = PoolHeader {
             serum_program_id: Pubkey::new_unique(),
+            // you only need 1 u8 for a bump seed on a program address.  Also,
             seed: [0u8; 32],
             signal_provider: Pubkey::new_unique(),
             status: PoolStatus::PendingOrder(NonZeroU8::new(39).unwrap()),
