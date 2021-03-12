@@ -298,17 +298,17 @@ impl Universe {
             }
             order_result?;
         }
-        let mut active_orders = vec![];
-        for (cancel_after, order) in &self.active_orders {
-            if *cancel_after >= self.cycle {
-                self.pool
-                    .cancel_order(ctx, self.serum_market.as_ref().unwrap(), order)
-                    .await?;
-            } else {
-                active_orders.push((*cancel_after, order.clone()))
-            }
-        }
-        self.active_orders = active_orders;
+        // let mut active_orders = vec![];
+        // for (cancel_after, order) in &self.active_orders {
+        //     if *cancel_after >= self.cycle {
+        //         self.pool
+        //             .cancel_order(ctx, self.serum_market.as_ref().unwrap(), order)
+        //             .await?;
+        //     } else {
+        //         active_orders.push((*cancel_after, order.clone()))
+        //     }
+        // }
+        // self.active_orders = active_orders;
         for i in 0..self.actors.len() {
             let actor = &mut self.actors[i];
             match turn.actor_intentions[i] {
