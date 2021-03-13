@@ -42,7 +42,8 @@ import {
 import bs58 from 'bs58';
 import * as crypto from 'crypto';
 import { open } from 'fs/promises';
-import { OpenOrders } from '@project-serum/serum';
+import { AWESOME_MARKETS } from "@dr497/awesome-serum-markets";
+import { OpenOrders, MARKETS, Market } from '@project-serum/serum';
 
 /////////////////////////////////
 
@@ -158,7 +159,7 @@ export async function createPool(
   // Create the pool asset accounts
   let poolAssetKeys: PublicKey[] = new Array();
   let assetTxInstructions: TransactionInstruction[] = new Array();
-  for (var sourceAssetKey of sourceAssetKeys) {
+  for (let sourceAssetKey of sourceAssetKeys) {
     let assetInfo = await connection.getAccountInfo(sourceAssetKey);
     if (!assetInfo) {
       throw 'Source asset account is unavailable';
@@ -186,6 +187,26 @@ export async function createPool(
     payer
   );
   targetPTInstruction? txInstructions.push(targetPTInstruction) : null;
+
+  // Verify that the markets are authorized
+  console.log(markets.length);
+  for (let i=0; i < markets.length; i++) {
+    let marketAddress = markets[i];
+    let marketIndex =  MARKETS.map(m => {
+      return m.address.toString();
+    }).lastIndexOf(marketAddress.toString());
+    let awsomeMarketIndex =  AWESOME_MARKETS.map(m => {
+      return m.address.toString();
+    }).lastIndexOf(marketAddress.toString());
+
+    if ((marketIndex == -1) && (awsomeMarketIndex == -1)) {
+      throw "Market is not authorized"
+    }
+    let market = (marketIndex != -1) ? MARKETS[marketIndex]: AWESOME_MARKETS[awsomeMarketIndex];
+    if (market.deprecated) {
+      throw "Given market is deprecated"
+    }
+  }
 
   // Create the pool
   // @ts-ignore
