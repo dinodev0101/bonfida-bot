@@ -35,8 +35,8 @@
     "typescript": "^4.1.3"
   },
   "dependencies": {
-    "@dr497/awesome-serum-markets": "^1.1.10",
-    "@project-serum/serum": "^0.13.25",
+    "@dr497/awesome-serum-markets": "^1.1.16",
+    "@project-serum/serum": "^0.13.30",
     "@project-serum/sol-wallet-adapter": "^0.1.5",
     "@solana/spl-token": "0.0.13",
     "@solana/web3.js": "^0.94.2",
