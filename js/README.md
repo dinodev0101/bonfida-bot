@@ -35,7 +35,7 @@ There are two scenarios in which a pool can find itself in a _locked_ state :
 
 However, a _locked_ pool can be unlocked with a sequence of permissionless operations. When the pool has pending orders, it is often possible to
 resolve the situation by running a `settleFunds` instruction. This is due to the fact that orders are either in the event queue and waiting to
-be consumed by Serum permissionless crankers, or waiting to be settled. When the pool has fees to collect, the permissionless `collectFees` instruction extracts all accrued fees from the pool and transfers those to defined signal provider (50% of fee) and Bonfida wallets (25% of fee), as well as a FIDA buy and burn address (25% of fee).
+be consumed by Serum permissionless crankers, or waiting to be settled. When the pool has fees to collect, the permissionless `collectFees` instruction extracts all accrued fees from the pool and transfers those to defined signal provider (50% of fee) and Bonfida Bots Insurance Fund (25% of fee), as well as a FIDA buy and burn address (25% of fee).
 
 TLDR: It is always possible for users to unlock the pool when they want to exit or even just enter into it.
 
@@ -49,37 +49,36 @@ import { createPool } from 'bonfida-bot';
 import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
 import { ENDPOINTS } from 'bonfida-bot';
 
-
 const connection = new Connection(ENDPOINTS.mainnet);
 
-const sourceOwnerAccount = new Account(["<MY PRIVATE KEY ARRAY>"]);
-const signalProviderAccount = new Account(["<MY PRIVATE KEY ARRAY AGAIN>"]);
+const sourceOwnerAccount = new Account(['<MY PRIVATE KEY ARRAY>']);
+const signalProviderAccount = new Account(['<MY PRIVATE KEY ARRAY AGAIN>']);
 
 // The payer account will pay for the fees involved with the transaction.
 // For the sake of simplicity, we choose the source owner.
-const payerAccount = sourceOwnerAccount
+const payerAccount = sourceOwnerAccount;
 
 // Creating a pool means making the initial deposit.
 // Any number of assets can be added. For each asset, the public key of the payer token account should be provided.
 // The deposit amounts are also given, with the precision (mostly 6 decimals) of the respective token.
 const sourceAssetKeys = [
-    new PublicKey("<First asset Key>"),
-    new PublicKey("<Second asset Key>"),
-]
+  new PublicKey('<First asset Key>'),
+  new PublicKey('<Second asset Key>'),
+];
 const deposit_amounts = [1000000, 1000000]; // This corresponds to 1 token of each with 6 decimals precisions
 
 //Fetching the number of decimals using the mint of a token can be done with:
 export const decimalsFromMint = async (
-    connection: Connection,
-    mint: PublicKey,
-  ) => {
-    const result = await connection.getParsedAccountInfo(mint);
-    // @ts-ignore
-    const decimals = result?.value?.data?.parsed?.info?.decimals;
-    if (!decimals) {
-      throw new Error('Invalid mint');
-    }
-    return decimals;
+  connection: Connection,
+  mint: PublicKey,
+) => {
+  const result = await connection.getParsedAccountInfo(mint);
+  // @ts-ignore
+  const decimals = result?.value?.data?.parsed?.info?.decimals;
+  if (!decimals) {
+    throw new Error('Invalid mint');
+  }
+  return decimals;
 };
 
 // Maximum number of assets that can be held by the pool at any given time.
@@ -88,10 +87,16 @@ const maxNumberOfAsset = 10;
 
 // It is necessary for the purpose of security to hardcode all Serum markets that will be usable by the pool.
 // It is advised to put here as many trusted markets with enough liquidity as required.
-const allowedMarkets = [new PublicKey('E14BKBhDWD4EuTkWj1ooZezesGxMW8LPCps4W5PuzZJo')]; // FIDA/USDC market address, for example
+const allowedMarkets = [
+  new PublicKey('E14BKBhDWD4EuTkWj1ooZezesGxMW8LPCps4W5PuzZJo'),
+]; // FIDA/USDC market address, for example
 // Market addresses can be fetched with:
-let marketAddress = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("<Market name, FIDA/USDC for instance>")].address;
-
+let marketAddress =
+  MARKETS[
+    MARKETS.map(m => {
+      return m.name;
+    }).lastIndexOf('<Market name, FIDA/USDC for instance>')
+  ].address;
 
 // Interval of time in seconds between two fee collections. This must be greater or equal to a week (604800 s).
 // @ts-ignore
@@ -101,32 +106,31 @@ const feeCollectionPeriod = new Numberu64(604800);
 // @ts-ignore
 const feePercentage = 0.1;
 
-
 const pool = async () => {
-    // Create pool
-    let [poolSeed, createInstructions] = await createPool(
-        connection,
-        sourceOwnerAccount.publicKey,
-        sourceAssetKeys,
-        signalProviderAccount.publicKey,
-        deposit_amounts,
-        maxNumberOfAsset,
-        allowedMarkets,
-        payerAccount.publicKey,
-        // @ts-ignore
-        feeCollectionPeriod,
-        // @ts-ignore
-        feePercentage
-    )
+  // Create pool
+  let [poolSeed, createInstructions] = await createPool(
+    connection,
+    sourceOwnerAccount.publicKey,
+    sourceAssetKeys,
+    signalProviderAccount.publicKey,
+    deposit_amounts,
+    maxNumberOfAsset,
+    allowedMarkets,
+    payerAccount.publicKey,
+    // @ts-ignore
+    feeCollectionPeriod,
+    // @ts-ignore
+    feePercentage,
+  );
 
-    await signAndSendTransactionInstructions(
-        connection,
-        [sourceOwnerAccount], // The owner of the source asset accounts must sign this transaction.
-        payerAccount,
-        createInstructions
-    );
-    console.log("Created Pool")
-}
+  await signAndSendTransactionInstructions(
+    connection,
+    [sourceOwnerAccount], // The owner of the source asset accounts must sign this transaction.
+    payerAccount,
+    createInstructions,
+  );
+  console.log('Created Pool');
+};
 
 pool();
 ```
@@ -138,19 +142,30 @@ pool();
 ```ts
 import { MARKETS } from '@project-serum/serum';
 import { Connection, Account } from '@solana/web3.js';
-import { createOrder, ENDPOINTS, OrderSide, OrderType, SelfTradeBehavior } from 'bonfida-bot';
+import {
+  createOrder,
+  ENDPOINTS,
+  OrderSide,
+  OrderType,
+  SelfTradeBehavior,
+} from 'bonfida-bot';
 import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
 import bs58 from 'bs58';
 
 const connection = new Connection(ENDPOINTS.mainnet);
 
-let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("<Market name, FIDA/USDC for instance>")];
+let marketInfo =
+  MARKETS[
+    MARKETS.map(m => {
+      return m.name;
+    }).lastIndexOf('<Market name, FIDA/USDC for instance>')
+  ];
 
 // Each bonfida-bot pool is identified by a 32 byte pool seed
 // This seed can be encoded as a base58 string which is similar to a public key.
-let poolSeed = bs58.decode("<poolSeeds>");
+let poolSeed = bs58.decode('<poolSeeds>');
 
-const signalProviderAccount = new Account("<MY PRIVATE KEY ARRAY>");
+const signalProviderAccount = new Account('<MY PRIVATE KEY ARRAY>');
 
 const payerAccount = signalProviderAccount;
 
@@ -160,7 +175,6 @@ let side = OrderSide.Ask;
 // The coin lot size and price currency lot sizes can be fetched via getMarketData from 'bonfida-bot'
 // @ts-ignore
 let limitPrice = new Numberu64(100000);
-
 
 // The max quantity is defined as the maximum percentage of available coin assets to be exchanged in the transaction from the pool.
 // If the order is an Ask, this equates to the maximum quantity willing to be sold.
@@ -182,29 +196,28 @@ let clientId = new Numberu64(0);
 let selfTradeBehavior = SelfTradeBehavior.DecrementTake;
 
 const order = async () => {
+  let [openOrderAccount, createPoolTxInstructions] = await createOrder(
+    connection,
+    poolSeed,
+    marketInfo.address,
+    side,
+    limitPrice,
+    maxQuantityPercentage,
+    orderType,
+    clientId,
+    selfTradeBehavior,
+    null, // Self referring
+    payerAccount.publicKey,
+  );
 
-    let [openOrderAccount, createPoolTxInstructions] = await createOrder(
-        connection,
-        poolSeed,
-        marketInfo.address,
-        side,
-        limitPrice,
-        maxQuantityPercentage,
-        orderType,
-        clientId,
-        selfTradeBehavior,
-        null, // Self referring
-        payerAccount.publicKey
-    );
-
-    await signAndSendTransactionInstructions(
-        connection,
-        [openOrderAccount, signalProviderAccount], // Required transaction signers
-        payerAccount,
-        createPoolTxInstructions
-    );
-    console.log("Created Order for Pool")
-}
+  await signAndSendTransactionInstructions(
+    connection,
+    [openOrderAccount, signalProviderAccount], // Required transaction signers
+    payerAccount,
+    createPoolTxInstructions,
+  );
+  console.log('Created Order for Pool');
+};
 
 order();
 ```
@@ -218,10 +231,7 @@ are redeemable for a commensurate proportion of pool assets at a later date. Thi
 
 ```ts
 import { deposit } from 'bonfida-bot';
-import {
-  signAndSendTransactionInstructions,
-  Numberu64,
-} from 'bonfida-bot';
+import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
 import { BONFIDABOT_PROGRAM_ID } from 'bonfida-bot';
 
 // This value represents the maximum amount of pool tokens being requested by the user
@@ -232,27 +242,25 @@ import { BONFIDABOT_PROGRAM_ID } from 'bonfida-bot';
 // @ts-ignore
 const poolTokenAmount = new Numberu64(3000000);
 
-
 const depositIntoPool = async () => {
-
-    // Deposit into Pool.
-    let depositTxInstructions = await deposit(
+  // Deposit into Pool.
+  let depositTxInstructions = await deposit(
     connection,
     sourceOwnerAccount.publicKey,
     sourceAssetKeys,
     poolTokenAmount,
     [poolSeed],
     payerAccount.publicKey,
-    );
+  );
 
-    await signAndSendTransactionInstructions(
+  await signAndSendTransactionInstructions(
     connection,
     [sourceOwnerAccount], // Required transaction signer
     payerAccount,
     depositTxInstructions,
-    );
-    console.log('Deposited into Pool');
-}
+  );
+  console.log('Deposited into Pool');
+};
 
 depositIntoPool();
 ```
@@ -261,10 +269,7 @@ depositIntoPool();
 
 ```ts
 import { redeem } from 'bonfida-bot';
-import {
-  signAndSendTransactionInstructions,
-  Numberu64,
-} from 'bonfida-bot';
+import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
 
 // By setting this value to be lower than the actual pool token balance of the pool token account,
 // It is possible to partially redeem assets from a pool.
@@ -272,24 +277,23 @@ import {
 const poolTokenAmount = new Numberu64(1000000);
 
 const redeemFromPool = async () => {
-
-    let redeemTxInstruction = await redeem(
+  let redeemTxInstruction = await redeem(
     connection,
     sourceOwnerAccount.publicKey,
     sourcePoolTokenKey,
     sourceAssetKeys,
     [poolSeed],
     poolTokenAmount,
-    );
+  );
 
-    await signAndSendTransactionInstructions(
+  await signAndSendTransactionInstructions(
     connection,
     [sourceOwnerAccount], // Required transaction signer
     payerAccount,
     redeemTxInstruction,
-    );
-    console.log('Redeemed out of Pool');
-}
+  );
+  console.log('Redeemed out of Pool');
+};
 
 redeemFromPool();
 ```
@@ -304,7 +308,7 @@ import { Account } from '@solana/web3.js';
 import { settleFunds } from 'bonfida-bot';
 import { signAndSendTransactionInstructions } from 'bonfida-bot';
 
-const payerAccount = Account("<MY PRIVATE KEY ARRAY>");
+const payerAccount = Account('<MY PRIVATE KEY ARRAY>');
 
 // It is also possible to settle all openOrders for a pool via getPoolOrderInfos from 'bonfida-bot'
 let settleFundsTxInstructions = await settleFunds(
@@ -313,16 +317,15 @@ let settleFundsTxInstructions = await settleFunds(
   marketAddress,
   OpenOrderAccount.address,
   null,
-  );
+);
 
 await signAndSendTransactionInstructions(
-    connection,
-    [], // No signer is required for this transaction! (Except to pay for transaction fees)
-    payerAccount,
-    settleFundsTxInstructions
-  );
-console.log("Settled Funds")
-
+  connection,
+  [], // No signer is required for this transaction! (Except to pay for transaction fees)
+  payerAccount,
+  settleFundsTxInstructions,
+);
+console.log('Settled Funds');
 ```
 
 ### Triggering a fee collection operation
@@ -340,10 +343,7 @@ activate the `collectFees` permissionless crank.
 import { collectFees } from 'bonfida-bot';
 import { signAndSendTransactionInstructions } from 'bonfida-bot';
 
-let collectFeesTxInstruction = await collectFees(
-  connection,
-  [poolSeed],
-);
+let collectFeesTxInstruction = await collectFees(connection, [poolSeed]);
 
 await signAndSendTransactionInstructions(
   connection,
