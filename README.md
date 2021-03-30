@@ -2,7 +2,8 @@
 
 This code is unaudited. Use at your own risk.
 
-Bonfida-bot is a an on-chain and off-chain tool suite that enables the creation of trading pools. Each trading pool has a cryptographically identified signal provider who is able to create Serum orders with the pool's assets. Anyone can invest in a trading pool in exchange for specific pool tokens which are redeemable at any time.
+Bonfida-bot is an on-chain and off-chain tool suite that enables the creation of trading pools. Each trading pool has a cryptographically identified signal provider who is able to create Serum orders with the pool's assets. Anyone can invest in a trading pool in exchange for specific pool tokens which are redeemable at any time.
+
 ### Structure:
 
 - Program account data:
