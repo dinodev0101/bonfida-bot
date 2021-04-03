@@ -68,6 +68,7 @@ export type PoolInfo = {
 import bs58 from 'bs58';
 import { stringify } from 'querystring';
 import { getMintDecimals } from '@project-serum/serum/lib/market';
+import base58 from 'bs58';
 
 // TODO singleTokenDeposit optim + singleTokenRedeem
 
@@ -945,3 +946,81 @@ export const getPoolOrderInfos = async (
 
   return infos_to_return;
 };
+
+export async function getTotalValue(
+  connection: Connection,
+): Promise<number> {
+  let poolSeeds = await getPoolsSeedsBySigProvider(connection);
+  let totalBalances = new Map();
+
+  console.log("Fetching Balances...");
+  // console.log(poolSeeds.map(s => base58.encode(s)));
+  
+  for (let seed of poolSeeds) {
+    let poolBalance;
+    try {
+      poolBalance = (await fetchPoolBalances(connection, seed))[1];
+    } catch {
+      console.log("Skipping", base58.encode(seed));
+      continue;
+    }
+    for (let i=0; i<poolBalance.length; i++) {
+      let mintString = poolBalance[i]["mint"];
+      let b = poolBalance[i]["tokenAmount"]["uiAmount"];
+      if (totalBalances.has(mintString)) {
+        let tb = totalBalances.get(mintString);
+        totalBalances.set(mintString, tb + b);
+      } else {
+        totalBalances.set(mintString, b);
+      }
+    }
+  }
+  console.log("Found", poolSeeds.length, "Pools");
+  
+  console.log("Adding it up...")
+  
+  let total_usdc_val: number = 0;
+  for (let mint of totalBalances.keys()) {
+    let tokenSymbol;
+    try {
+      tokenSymbol =
+      TOKEN_MINTS[
+        TOKEN_MINTS.map(t => t.address.toString()).indexOf(mint)
+      ].name;
+    } catch {
+      console.log("Could not find symbol for market:", mint, "Amount: ", totalBalances.get(mint));
+      continue;
+    }
+
+    if (tokenSymbol === 'USDC') {
+      let usdcAmount = totalBalances.get(mint);
+      console.log("Added ", usdcAmount, "for USDC");
+      total_usdc_val += usdcAmount;
+      continue;
+    }
+
+    let pairSymbol = tokenSymbol.concat('/USDC');
+    let marketInfo =
+      MARKETS[
+        MARKETS.map(m => {
+          return m.name;
+        }).lastIndexOf(pairSymbol)
+      ];
+    if (marketInfo.deprecated) {
+      console.log("Warning:", pairSymbol, "is deprecated at address", mint);
+    }
+
+    let [_, midPriceUSDC] = await getMidPrice(
+      connection,
+      marketInfo.address,
+    );
+
+    let amount = totalBalances.get(mint) * midPriceUSDC;
+    console.log("Added ", amount, "for", pairSymbol);
+    total_usdc_val += amount;
+
+  }
+
+  console.log("Found ", total_usdc_val, " of USDC in pools today.");
+  return total_usdc_val
+}

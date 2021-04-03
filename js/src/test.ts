@@ -72,11 +72,12 @@ import {
   getPoolOrderInfos,
   getPoolOrdersInfosFromSignature,
   getPoolsSeedsBySigProvider,
+  getTotalValue,
   settlePool,
   singleTokenDeposit,
 } from './secondary_bindings';
 import {loggablePoolOrderInfo} from './types';
-import { SOURCE_OWNER_ACCOUNT } from './secret';
+// import { SOURCE_OWNER_ACCOUNT } from './secret';
 // import { SOURCE_OWNER_ACCOUNT } from './secret';
 
 const test = async (): Promise<void> => {
@@ -94,14 +95,14 @@ const test = async (): Promise<void> => {
   );
 
   // Accounts to use for test
-  const sourceOwnerAccount = SOURCE_OWNER_ACCOUNT;
+  // const sourceOwnerAccount = SOURCE_OWNER_ACCOUNT;
   //Pubkey: YoxKe1BcnqEfCd5nTQR9VqNaYvYwLsZfFkiUZXHXpve (id_mainnet.json)
   const sourceAssetKeys = [
     new PublicKey("BTP4EbHuXhfCEtk3LeEQJvHxVw4bZaMkA37znm6eXvNw"),
     new PublicKey("G9GeWZvm6LJN9yCqyUeyicScvkaJrKgkKGs5JZQXHDgy")
   ];
-  const signalProviderAccount = sourceOwnerAccount;
-  const payerAccount = sourceOwnerAccount;
+  // const signalProviderAccount = sourceOwnerAccount;
+  // const payerAccount = sourceOwnerAccount;
 
   // // Get FIDA to USDC market
   // let marketInfo = MARKETS[MARKETS.map(m => {return m.name}).lastIndexOf("FIDA/USDC")];
@@ -261,40 +262,43 @@ const test = async (): Promise<void> => {
 
   // //////////////////////////////////////////////
 
-  let fetchedSeeds = await getPoolsSeedsBySigProvider(
-    connection,
-    undefined
-  );
-  console.log();
-  console.log("Seeds of existing pools:")
-  console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
-  console.log();
+  // let fetchedSeeds = await getPoolsSeedsBySigProvider(
+  //   connection,
+  //   undefined
+  // );
+  // console.log();
+  // console.log("Seeds of existing pools:")
+  // console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
+  // console.log();
 
-  let poolSeed = bs58.decode("2JAGoviegvZeVnvtdHTpMW5jm4zrehqmpoUPXEtNi5xa");
-  let poolInfo = await fetchPoolInfo(connection, poolSeed);
+  // let poolSeed = bs58.decode("2JAGoviegvZeVnvtdHTpMW5jm4zrehqmpoUPXEtNi5xa");
+  // let poolInfo = await fetchPoolInfo(connection, poolSeed);
 
-  console.log("Pool Info:")
-  console.log({
-      address: poolInfo.address.toString(),
-      serumProgramId: poolInfo.serumProgramId.toString(),
-      seed: bs58.encode(poolInfo.seed),
-      signalProvider: poolInfo.signalProvider.toString(),
-      status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
-      feeRatio: Number(poolInfo.feeRatio),
-      feePeriod: Number(poolInfo.feePeriod),
-      mintKey: poolInfo.mintKey.toString(),
-      assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
-      authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
-  });
-  console.log();
+  // console.log("Pool Info:")
+  // console.log({
+  //     address: poolInfo.address.toString(),
+  //     serumProgramId: poolInfo.serumProgramId.toString(),
+  //     seed: bs58.encode(poolInfo.seed),
+  //     signalProvider: poolInfo.signalProvider.toString(),
+  //     status: [PoolStatusID[poolInfo.status[0]], poolInfo.status[1]],
+  //     feeRatio: Number(poolInfo.feeRatio),
+  //     feePeriod: Number(poolInfo.feePeriod),
+  //     mintKey: poolInfo.mintKey.toString(),
+  //     assetMintkeys: poolInfo.assetMintkeys.map(asset => asset.toString()),
+  //     authorizedMarkets: poolInfo.authorizedMarkets.map(market => market.toString())
+  // });
+  // console.log();
 
-  let poolBalances = await fetchPoolBalances(connection, poolSeed);
-  console.log("Total Pooltokens", poolBalances[0]);
-  console.log("Pool Balances:")
-  console.log(poolBalances[1].map(b => { return {
-    mint: b.mint.toString(),
-    amount: b.tokenAmount.amount
-  }}));
+  // let poolBalances = await fetchPoolBalances(connection, poolSeed);
+  // console.log("Total Pooltokens", poolBalances[0]);
+  // console.log("Pool Balances:")
+  // console.log(poolBalances[1].map(b => { return {
+  //   mint: b.mint.toString(),
+  //   amount: b.tokenAmount.amount
+  // }}));
+
+  let t = await getTotalValue(connection);
+  console.log(t);
 
   // //////////////////////////////////////////////
   
