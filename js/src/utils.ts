@@ -56,7 +56,7 @@ export async function getMarketData(
     throw 'Market account is unavailable';
   }
   let marketData = {
-    adress: marketKey,
+    address: marketKey,
     coinMintKey: new PublicKey(marketAccountInfo.data.slice(53, 85)),
     coinVaultKey: new PublicKey(marketAccountInfo.data.slice(117, 149)),
     coinLotSize: new Numberu64(
