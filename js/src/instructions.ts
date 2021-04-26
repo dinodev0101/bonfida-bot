@@ -1,10 +1,264 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { fromBase58 } from 'bip32';
 import { OrderSide, OrderType, SelfTradeBehavior } from './state';
 import { Numberu128, Numberu16, Numberu32, Numberu64 } from './utils';
+import { BN } from 'bn.js';
 
 export enum Instruction {
   Init,
   Create,
+  Deposit,
+  CreateOrder,
+  CancelOrder,
+  SettleFunds,
+  Redeem,
+  CollectFees,
+}
+
+export interface InitInstructionData {
+  poolSeed: Buffer;
+  maxNumberOfAssets: number;
+  numberOfMarkets: number;
+}
+export interface CreateInstructionData {
+  poolSeed: Buffer;
+  feeCollectionPeriod: number;
+  feeRatio: number;
+  depositAmounts: number[];
+  markets: PublicKey[];
+}
+export interface DepositInstructionData {
+  poolSeed: Buffer;
+  poolTokenAmount: number;
+}
+
+export interface CreateOrderInstructionData {
+  poolSeed: Buffer;
+  side: OrderSide;
+  limitPrice: number;
+  ratioOfPoolAssetsToTrade: number;
+  orderType: OrderType;
+  clientId: number;
+  selfTradeBehavior: SelfTradeBehavior;
+  sourceIndex: number;
+  targetIndex: number;
+  marketIndex: number;
+  coinLotSize: number;
+  pcLotSize: number;
+  targetMint: PublicKey;
+  serumLimit: number;
+}
+
+export interface CancelOrderInstructionData {
+  poolSeed: Buffer;
+  side: OrderSide;
+  orderId: Buffer;
+}
+
+export interface SettleFundsInstructionData {
+  poolSeed: Buffer;
+  pcIndex: OrderSide;
+  coinIndex: number;
+}
+
+export interface RedeemInstructionData {
+  poolSeed: Buffer;
+  poolTokenAmount: OrderSide;
+}
+export interface CollectFeesInstructionData {
+  poolSeed: Buffer;
+}
+
+export type ParsedInstruction =
+  | InitInstructionData
+  | CreateInstructionData
+  | CreateOrderInstructionData
+  | DepositInstructionData
+  | CreateInstructionData
+  | CancelOrderInstructionData
+  | SettleFundsInstructionData
+  | RedeemInstructionData
+  | CollectFeesInstructionData;
+
+export function decodeInstruction(
+  buffer: Buffer,
+  instructionType: Instruction,
+): ParsedInstruction {
+  if (buffer[0] !== instructionType) {
+    throw 'Incorrect instruction type';
+  }
+  let offset = 1;
+  let poolSeed = buffer.slice(offset, offset + 32);
+  offset += 32;
+  switch (buffer[0]) {
+    case Instruction.Init: {
+      let maxNumberOfAssets = new BN(
+        buffer.slice(offset, offset + 4),
+        'le',
+      ).toNumber();
+      offset += 4;
+      let numberOfMarkets = new BN(
+        buffer.slice(offset, offset + 2),
+        'le',
+      ).toNumber();
+      offset += 2;
+      return {
+        poolSeed,
+        maxNumberOfAssets,
+        numberOfMarkets,
+      };
+    }
+    case Instruction.Create: {
+      let numberOfMarkets = new BN(
+        buffer.slice(offset, offset + 2),
+        'le',
+      ).toNumber();
+      offset += 2;
+      let feeCollectionPeriod = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let feeRatio = new BN(buffer.slice(offset, offset + 2), 'le').toNumber() / (2 ** 16);
+      offset += 2;
+      let markets: PublicKey[] = [];
+      for (let i = 0; i < numberOfMarkets; i++) {
+        markets.push(new PublicKey(buffer.slice(offset, offset + 32)));
+        offset += 32;
+      }
+      let depositAmounts: number[] = [];
+      while (offset < buffer.length) {
+        depositAmounts.push(
+          new BN(buffer.slice(offset, offset + 8), 'le').toNumber(),
+        );
+        offset += 8;
+      }
+      return {
+        poolSeed,
+        feeCollectionPeriod,
+        feeRatio,
+        depositAmounts,
+        markets,
+      };
+    }
+    case Instruction.Deposit: {
+      let poolTokenAmount = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      return {
+        poolSeed,
+        poolTokenAmount,
+      };
+    }
+    case Instruction.CreateOrder: {
+      let side: OrderSide = buffer[offset];
+      offset++;
+      let limitPrice = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let ratioOfPoolAssetsToTrade = new BN(
+        buffer.slice(offset, offset + 2),
+        'le',
+      ).toNumber();
+      offset += 2;
+      let orderType: OrderType = buffer[offset];
+      offset++;
+      let clientId = new BN(buffer.slice(offset, offset + 8), 'le').toNumber();
+      offset += 8;
+      let selfTradeBehavior: SelfTradeBehavior = buffer[offset];
+      offset++;
+      let sourceIndex = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let targetIndex = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let marketIndex = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let coinLotSize = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      let pcLotSize = new BN(buffer.slice(offset, offset + 8), 'le').toNumber();
+      offset += 8;
+
+      let targetMint = new PublicKey(buffer.slice(offset, offset + 32));
+      offset += 32;
+      let serumLimit = new BN(
+        buffer.slice(offset, offset + 2),
+        'le',
+      ).toNumber();
+      offset += 2;
+
+      return {
+        poolSeed,
+        side,
+        limitPrice,
+        ratioOfPoolAssetsToTrade,
+        orderType,
+        clientId,
+        selfTradeBehavior,
+        sourceIndex,
+        targetIndex,
+        marketIndex,
+        coinLotSize,
+        pcLotSize,
+        targetMint,
+        serumLimit,
+      };
+    }
+    case Instruction.CancelOrder: {
+      let side: OrderSide = buffer[offset];
+      offset++;
+      let orderId = Buffer.alloc(16);
+      buffer.slice(offset, offset + 16).copy(orderId);
+      offset += 16;
+      return {
+        poolSeed,
+        side,
+        orderId,
+      };
+    }
+    case Instruction.SettleFunds: {
+      let pcIndex = new BN(buffer.slice(offset, offset+8), 'le').toNumber();
+      offset += 8;
+      let coinIndex = new BN(buffer.slice(offset, offset + 8), 'le').toNumber();
+      offset += 8;
+      return {
+        poolSeed,
+        pcIndex,
+        coinIndex
+      }
+    }
+    case Instruction.Redeem: {
+      let poolTokenAmount = new BN(
+        buffer.slice(offset, offset + 8),
+        'le',
+      ).toNumber();
+      offset += 8;
+      return {
+        poolSeed,
+        poolTokenAmount,
+      };
+    }
+    case Instruction.CollectFees: {
+      return {
+        poolSeed
+      }
+    }
+  }
+  throw "Failed to parse instruction"
 }
 
 export function initInstruction(
@@ -84,7 +338,7 @@ export function createInstruction(
   depositAmounts: Array<number>,
   markets: Array<PublicKey>,
   feeCollectionPeriod: Numberu64,
-  feeRatio: Numberu16
+  feeRatio: Numberu16,
 ): TransactionInstruction {
   let buffers = [
     Buffer.from(Int8Array.from([1])),
@@ -92,7 +346,7 @@ export function createInstruction(
     // @ts-ignore
     new Numberu16(markets.length).toBuffer(),
     feeCollectionPeriod.toBuffer(),
-    feeRatio.toBuffer()
+    feeRatio.toBuffer(),
   ];
   for (var market of markets) {
     // @ts-ignore
@@ -302,7 +556,7 @@ export function createOrderInstruction(
     coin_lot_size.toBuffer(),
     pc_lot_size.toBuffer(),
     target_mint.toBuffer(),
-    serumLimit.toBuffer()
+    serumLimit.toBuffer(),
   ];
   const data = Buffer.concat(buffers);
 
@@ -649,10 +903,7 @@ export function collectFeesInstruction(
   bonfidaBnBPTKey: PublicKey,
   poolSeed: Array<Buffer | Uint8Array>,
 ): TransactionInstruction {
-  let buffers = [
-    Buffer.from(Int8Array.from([7])),
-    Buffer.concat(poolSeed),
-  ];
+  let buffers = [Buffer.from(Int8Array.from([7])), Buffer.concat(poolSeed)];
 
   const data = Buffer.concat(buffers);
   const keys = [
