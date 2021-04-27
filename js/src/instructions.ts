@@ -181,10 +181,10 @@ export function decodeInstruction(
       ).toNumber();
       offset += 8;
       let marketIndex = new BN(
-        buffer.slice(offset, offset + 8),
+        buffer.slice(offset, offset + 2),
         'le',
       ).toNumber();
-      offset += 8;
+      offset += 1;
       let coinLotSize = new BN(
         buffer.slice(offset, offset + 8),
         'le',
