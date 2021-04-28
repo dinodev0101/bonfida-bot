@@ -1,8 +1,8 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { fromBase58 } from 'bip32';
 import { OrderSide, OrderType, SelfTradeBehavior } from './state';
 import { Numberu128, Numberu16, Numberu32, Numberu64 } from './utils';
 import { BN } from 'bn.js';
+import bs58 from 'bs58';
 
 export enum Instruction {
   Init,
@@ -16,12 +16,12 @@ export enum Instruction {
 }
 
 export interface InitInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   maxNumberOfAssets: number;
   numberOfMarkets: number;
 }
 export interface CreateInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   feeCollectionPeriod: number;
   feeRatio: number;
   depositAmounts: number[];
@@ -33,7 +33,7 @@ export interface DepositInstructionData {
 }
 
 export interface CreateOrderInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   side: OrderSide;
   limitPrice: number;
   ratioOfPoolAssetsToTrade: number;
@@ -45,28 +45,28 @@ export interface CreateOrderInstructionData {
   marketIndex: number;
   coinLotSize: number;
   pcLotSize: number;
-  targetMint: PublicKey;
+  targetMint: string;
   serumLimit: number;
 }
 
 export interface CancelOrderInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   side: OrderSide;
   orderId: Buffer;
 }
 
 export interface SettleFundsInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   pcIndex: OrderSide;
   coinIndex: number;
 }
 
 export interface RedeemInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
   poolTokenAmount: OrderSide;
 }
 export interface CollectFeesInstructionData {
-  poolSeed: Buffer;
+  poolSeed: string;
 }
 
 export type ParsedInstruction =
@@ -103,7 +103,7 @@ export function decodeInstruction(
       ).toNumber();
       offset += 2;
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         maxNumberOfAssets,
         numberOfMarkets,
       };
@@ -119,7 +119,8 @@ export function decodeInstruction(
         'le',
       ).toNumber();
       offset += 8;
-      let feeRatio = new BN(buffer.slice(offset, offset + 2), 'le').toNumber() / (2 ** 16);
+      let feeRatio =
+        new BN(buffer.slice(offset, offset + 2), 'le').toNumber() / 2 ** 16;
       offset += 2;
       let markets: PublicKey[] = [];
       for (let i = 0; i < numberOfMarkets; i++) {
@@ -133,8 +134,9 @@ export function decodeInstruction(
         );
         offset += 8;
       }
+
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         feeCollectionPeriod,
         feeRatio,
         depositAmounts,
@@ -147,7 +149,7 @@ export function decodeInstruction(
         'le',
       ).toNumber();
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         poolTokenAmount,
       };
     }
@@ -202,7 +204,7 @@ export function decodeInstruction(
       offset += 2;
 
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         side,
         limitPrice,
         ratioOfPoolAssetsToTrade,
@@ -214,7 +216,7 @@ export function decodeInstruction(
         marketIndex,
         coinLotSize,
         pcLotSize,
-        targetMint,
+        targetMint: targetMint.toBase58(),
         serumLimit,
       };
     }
@@ -225,21 +227,21 @@ export function decodeInstruction(
       buffer.slice(offset, offset + 16).copy(orderId);
       offset += 16;
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         side,
         orderId,
       };
     }
     case Instruction.SettleFunds: {
-      let pcIndex = new BN(buffer.slice(offset, offset+8), 'le').toNumber();
+      let pcIndex = new BN(buffer.slice(offset, offset + 8), 'le').toNumber();
       offset += 8;
       let coinIndex = new BN(buffer.slice(offset, offset + 8), 'le').toNumber();
       offset += 8;
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         pcIndex,
-        coinIndex
-      }
+        coinIndex,
+      };
     }
     case Instruction.Redeem: {
       let poolTokenAmount = new BN(
@@ -248,17 +250,17 @@ export function decodeInstruction(
       ).toNumber();
       offset += 8;
       return {
-        poolSeed,
+        poolSeed: bs58.encode(poolSeed),
         poolTokenAmount,
       };
     }
     case Instruction.CollectFees: {
       return {
-        poolSeed
-      }
+        poolSeed: bs58.encode(poolSeed),
+      };
     }
   }
-  throw "Failed to parse instruction"
+  throw 'Failed to parse instruction';
 }
 
 export function initInstruction(
