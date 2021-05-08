@@ -1,10 +1,13 @@
 {
-  "name": "bonfida-bot",
-  "version": "0.4.9",
+  "name": "@bonfida/bot",
+  "version": "0.5.0",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/bonfida/bonfida-bot"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
