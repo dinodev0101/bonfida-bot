@@ -1,4 +1,3 @@
-
 import bs58 from 'bs58';
 import {
   Account,
@@ -72,11 +71,12 @@ import {
   getPoolOrderInfos,
   getPoolOrdersInfosFromSignature,
   getPoolsSeedsBySigProvider,
+  getTotalNbTransactions,
   getTotalValue,
   settlePool,
   singleTokenDeposit,
 } from './secondary_bindings';
-import {loggablePoolOrderInfo} from './types';
+import { loggablePoolOrderInfo } from './types';
 // import { SOURCE_OWNER_ACCOUNT } from './secret';
 // import { SOURCE_OWNER_ACCOUNT } from './secret';
 
@@ -98,8 +98,8 @@ const test = async (): Promise<void> => {
   // const sourceOwnerAccount = SOURCE_OWNER_ACCOUNT;
   //Pubkey: YoxKe1BcnqEfCd5nTQR9VqNaYvYwLsZfFkiUZXHXpve (id_mainnet.json)
   const sourceAssetKeys = [
-    new PublicKey("BTP4EbHuXhfCEtk3LeEQJvHxVw4bZaMkA37znm6eXvNw"),
-    new PublicKey("G9GeWZvm6LJN9yCqyUeyicScvkaJrKgkKGs5JZQXHDgy")
+    new PublicKey('BTP4EbHuXhfCEtk3LeEQJvHxVw4bZaMkA37znm6eXvNw'),
+    new PublicKey('G9GeWZvm6LJN9yCqyUeyicScvkaJrKgkKGs5JZQXHDgy'),
   ];
   // const signalProviderAccount = sourceOwnerAccount;
   // const payerAccount = sourceOwnerAccount;
@@ -271,7 +271,7 @@ const test = async (): Promise<void> => {
   // console.log(fetchedSeeds.map(seed => bs58.encode(seed)));
   // console.log();
 
-  // let poolSeed = bs58.decode("2JAGoviegvZeVnvtdHTpMW5jm4zrehqmpoUPXEtNi5xa");
+  // let poolSeed = bs58.decode('3CTNy33oc2PCpaNdXsFg3dPQzzvTnnQ5ASD7sfnuN56e');
   // let poolInfo = await fetchPoolInfo(connection, poolSeed);
 
   // console.log("Pool Info:")
@@ -297,11 +297,17 @@ const test = async (): Promise<void> => {
   //   amount: b.tokenAmount.amount
   // }}));
 
-  let t = await getTotalValue(connection);
-  console.log(t);
+  // //////////////////////////////////////////////
+
+  let t = console.log('TVL: ', await getTotalValue(connection));
+
+  // console.log(
+  //   'Total Nb of transactions',
+  //   await getTotalNbTransactions(connection),
+  // );
 
   // //////////////////////////////////////////////
-  
+
   // let poolAddress = new PublicKey(
   //   'Epm7J6aQQJNXMWfSiyFqHMkxQoozhNY8QTou85arjzko',
   // );
@@ -315,9 +321,8 @@ const test = async (): Promise<void> => {
   // let poolSeed = PoolHeader.fromBuffer(poolData as Buffer).seed;
 
   // let ordersInfo = await getPoolOrderInfos(connection, poolSeed, 10);
-  
-  // ordersInfo.forEach((o, idx) => console.log("Order %s : %s", idx, loggablePoolOrderInfo(o)));
 
+  // ordersInfo.forEach((o, idx) => console.log("Order %s : %s", idx, loggablePoolOrderInfo(o)));
 };
 
 test();

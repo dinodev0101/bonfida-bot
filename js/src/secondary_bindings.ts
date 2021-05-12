@@ -1024,3 +1024,27 @@ export async function getTotalValue(
   console.log("Found ", total_usdc_val, " of USDC in pools today.");
   return total_usdc_val
 }
+
+export async function getTotalNbTransactions(
+  connection: Connection,
+): Promise<[number, string[]]> {
+  let poolSeeds = await getPoolsSeedsBySigProvider(connection);
+  let totalBalances = new Map();
+
+  console.log("Fetching Nb of transactions for pools...");
+  let exceeding_pools: string[] = [];
+  let total = 0;
+  for (let seed of poolSeeds) {
+    try {
+      let incr = (await getPoolOrderInfos(connection, seed, 1000)).length;
+      if (incr = 1000) {
+        exceeding_pools.push(base58.encode(seed));
+      }
+      total += incr;    
+    } catch {
+      console.log("Skipping", base58.encode(seed));
+      continue;
+    }
+  }
+  return [total, exceeding_pools]
+}
