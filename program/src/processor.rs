@@ -214,8 +214,14 @@ impl Processor {
                 continue;
             }
 
-            let mint_asset_key =
-                Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            let pool_asset_data = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?;
+
+            if pool_asset_data.close_authority.is_some() | pool_asset_data.delegate.is_some() {
+                msg!("Invalid pool asset account");
+                return Err(ProgramError::InvalidArgument)
+            }
+
+            let mint_asset_key = pool_asset_data.mint;
             let pool_asset_key = get_associated_token_address(&pool_key, &mint_asset_key);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
