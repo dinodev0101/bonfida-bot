@@ -51,6 +51,11 @@ impl Processor {
 
         let rent = Rent::from_account_info(rent_sysvar_account)?;
 
+        if spl_token_program_account.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
+
         // Find the non reversible public key for the pool account via the seed
         let pool_key = Pubkey::create_program_address(&[&pool_seed], &program_id)?;
         if pool_key != *pool_account.key {
@@ -139,6 +144,11 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
+        if spl_token_account.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
+
         let clock_sysvar_account = next_account_info(accounts_iter)?;
         let serum_program_account = next_account_info(accounts_iter)?;
         let signal_provider_account = next_account_info(accounts_iter)?;
@@ -204,8 +214,14 @@ impl Processor {
                 continue;
             }
 
-            let mint_asset_key =
-                Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?.mint;
+            let pool_asset_data = Account::unpack(&pool_assets_accounts[i as usize].data.borrow())?;
+
+            if pool_asset_data.close_authority.is_some() | pool_asset_data.delegate.is_some() {
+                msg!("Invalid pool asset account");
+                return Err(ProgramError::InvalidArgument)
+            }
+
+            let mint_asset_key = pool_asset_data.mint;
             let pool_asset_key = get_associated_token_address(&pool_key, &mint_asset_key);
 
             if pool_asset_key != *pool_assets_accounts[i as usize].key {
@@ -294,6 +310,10 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
+        if spl_token_account.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
         let mint_account = next_account_info(accounts_iter)?;
 
         let target_pool_token_account = next_account_info(accounts_iter)?;
@@ -567,6 +587,10 @@ impl Processor {
         let coin_vault = next_account_info(account_iter)?;
         let pc_vault = next_account_info(account_iter)?;
         let spl_token_program = next_account_info(account_iter)?;
+        if spl_token_program.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
         let rent_sysvar_account = next_account_info(account_iter)?;
         let dex_program = next_account_info(account_iter)?;
         let discount_account = next_account_info(account_iter).ok();
@@ -794,6 +818,10 @@ impl Processor {
         let pool_pc_wallet = next_account_info(account_iter)?;
         let vault_signer = next_account_info(account_iter)?;
         let spl_token_program = next_account_info(account_iter)?;
+        if spl_token_program.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
         let dex_program = next_account_info(account_iter)?;
 
         let referrer_account = next_account_info(account_iter).ok();
@@ -1041,6 +1069,10 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
 
         let spl_token_account = next_account_info(accounts_iter)?;
+        if spl_token_account.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
         let clock_sysvar_account = next_account_info(accounts_iter)?;
 
         let mint_account = next_account_info(accounts_iter)?;
@@ -1180,6 +1212,10 @@ impl Processor {
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let spl_token_account = next_account_info(accounts_iter)?;
+        if spl_token_account.key != &spl_token::id() {
+            msg!("Incorrect spl token program provided");
+            return Err(ProgramError::IncorrectProgramId)
+        }
         let clock_sysvar_account = next_account_info(accounts_iter)?;
         let pool_account = next_account_info(accounts_iter)?;
 
