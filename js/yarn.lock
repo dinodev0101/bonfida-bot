@@ -116,10 +116,10 @@
     lodash "^4.17.19"
     to-fast-properties "^2.0.0"
 
-"@dr497/awesome-serum-markets@^1.1.16":
-  version "1.1.31"
-  resolved "https://registry.npmjs.org/@dr497/awesome-serum-markets/-/awesome-serum-markets-1.1.31.tgz"
-  integrity sha512-DGI/WOChZ7oQdaD3o1KfqW7E2yeYsGLD0MMocHQFVMH/2Vi5agj50XezO8QIrRsDw2F4ZMQSOKIZ03XiRXsvSQ==
+"@dr497/awesome-serum-markets@^1.1.36":
+  version "1.1.36"
+  resolved "https://registry.yarnpkg.com/@dr497/awesome-serum-markets/-/awesome-serum-markets-1.1.36.tgz#a2b6bbd9f224c8660878803cb4811b75822bc1e1"
+  integrity sha512-S+3JhK0y8/dIGhmnLUlXbAKycqbeyt6DcbBGH1sAbx6osgd1Gv3PeGfxQohnkRTafY+W9Q+2aEYAH6nFWypPVQ==
   dependencies:
     "@solana/web3.js" "^0.87.1"
 
