@@ -1,8 +1,8 @@
-[![npm (scoped)](https://img.shields.io/npm/v/bonfida-bot)](https://www.npmjs.com/package/bonfida-bot)
+[![npm (scoped)](https://img.shields.io/npm/v/@bonfida/bot)](https://www.npmjs.com/package/@bonfida/bot)
 
-# Bonfida-bot JS library
+# @bonfida/bot JS library
 
-A JavaScript client library for interacting with the bonfida-bot on-chain program. This library can be used for :
+A JavaScript client library for interacting with the @bonfida/bot on-chain program. This library can be used for :
 
 - Creating pools.
 - Trading on behalf of pools by sending signals.
@@ -15,13 +15,13 @@ This library provides bindings for different pool operations. Adding it to a pro
 Using npm:
 
 ```
-npm install bonfida-bot
+npm install @bonfida/bot
 ```
 
 Using yarn:
 
 ```
-yarn add bonfida-bot
+yarn add @bonfida/bot
 ```
 
 ## Concepts
@@ -45,9 +45,9 @@ TLDR: It is always possible for users to unlock the pool when they want to exit 
 
 ```ts
 import { Connection, Account, PublicKey } from '@solana/web3.js';
-import { createPool } from 'bonfida-bot';
-import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
-import { ENDPOINTS } from 'bonfida-bot';
+import { createPool } from '@bonfida/bot';
+import { signAndSendTransactionInstructions, Numberu64 } from '@bonfida/bot';
+import { ENDPOINTS } from '@bonfida/bot';
 
 const connection = new Connection(ENDPOINTS.mainnet);
 
@@ -148,8 +148,8 @@ import {
   OrderSide,
   OrderType,
   SelfTradeBehavior,
-} from 'bonfida-bot';
-import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
+} from '@bonfida/bot';
+import { signAndSendTransactionInstructions, Numberu64 } from '@bonfida/bot';
 import bs58 from 'bs58';
 
 const connection = new Connection(ENDPOINTS.mainnet);
@@ -161,7 +161,7 @@ let marketInfo =
     }).lastIndexOf('<Market name, FIDA/USDC for instance>')
   ];
 
-// Each bonfida-bot pool is identified by a 32 byte pool seed
+// Each @bonfida/bot pool is identified by a 32 byte pool seed
 // This seed can be encoded as a base58 string which is similar to a public key.
 let poolSeed = bs58.decode('<poolSeeds>');
 
@@ -172,7 +172,7 @@ const payerAccount = signalProviderAccount;
 let side = OrderSide.Ask;
 
 // The limit price is defined as the number of price currency lots required to pay for a lot of coin currency.
-// The coin lot size and price currency lot sizes can be fetched via getMarketData from 'bonfida-bot'
+// The coin lot size and price currency lot sizes can be fetched via getMarketData from '@bonfida/bot'
 // @ts-ignore
 let limitPrice = new Numberu64(100000);
 
@@ -230,9 +230,9 @@ In exchange for a distribution of tokens which is proportional to the current as
 are redeemable for a commensurate proportion of pool assets at a later date. This operation represents the fundamental investment mechanism.
 
 ```ts
-import { deposit } from 'bonfida-bot';
-import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
-import { BONFIDABOT_PROGRAM_ID } from 'bonfida-bot';
+import { deposit } from '@bonfida/bot';
+import { signAndSendTransactionInstructions, Numberu64 } from '@bonfida/bot';
+import { BONFIDABOT_PROGRAM_ID } from '@bonfida/bot';
 
 // This value represents the maximum amount of pool tokens being requested by the user
 // If the source asset accounts happen to be underfunded for this value to be reached,
@@ -268,8 +268,8 @@ depositIntoPool();
 #### Retrieving funds from a pool
 
 ```ts
-import { redeem } from 'bonfida-bot';
-import { signAndSendTransactionInstructions, Numberu64 } from 'bonfida-bot';
+import { redeem } from '@bonfida/bot';
+import { signAndSendTransactionInstructions, Numberu64 } from '@bonfida/bot';
 
 // By setting this value to be lower than the actual pool token balance of the pool token account,
 // It is possible to partially redeem assets from a pool.
@@ -305,12 +305,12 @@ redeem operations. Thankfully, this operation is permissionless which means that
 
 ```ts
 import { Account } from '@solana/web3.js';
-import { settleFunds } from 'bonfida-bot';
-import { signAndSendTransactionInstructions } from 'bonfida-bot';
+import { settleFunds } from '@bonfida/bot';
+import { signAndSendTransactionInstructions } from '@bonfida/bot';
 
 const payerAccount = Account('<MY PRIVATE KEY ARRAY>');
 
-// It is also possible to settle all openOrders for a pool via getPoolOrderInfos from 'bonfida-bot'
+// It is also possible to settle all openOrders for a pool via getPoolOrderInfos from '@bonfida/bot'
 let settleFundsTxInstructions = await settleFunds(
   connection,
   poolSeed,
@@ -340,8 +340,8 @@ activate the `collectFees` permissionless crank.
 | FIDA buy and burn | 25%            |
 
 ```ts
-import { collectFees } from 'bonfida-bot';
-import { signAndSendTransactionInstructions } from 'bonfida-bot';
+import { collectFees } from '@bonfida/bot';
+import { signAndSendTransactionInstructions } from '@bonfida/bot';
 
 let collectFeesTxInstruction = await collectFees(connection, [poolSeed]);
 
