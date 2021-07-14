@@ -186,7 +186,7 @@ export function decodeInstruction(
         buffer.slice(offset, offset + 2),
         'le',
       ).toNumber();
-      offset += 1;
+      offset += 2;
       let coinLotSize = new BN(
         buffer.slice(offset, offset + 8),
         'le',
